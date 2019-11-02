@@ -20,6 +20,8 @@
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtx/string_cast.hpp> // glm::to_string()
 
+
+// CAMERA CLASS
 class BasicRTSCamera
 {
 private:
@@ -192,7 +194,6 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
     }
 }
 
-
 // CAMERA
 BasicRTSCamera* camera;
 
@@ -235,6 +236,21 @@ bool MoveCamera(GLfloat deltaTime)
     }
     return retval;
 }
+
+
+// HEIGHT MAP DEFINITIONS
+enum class TerrainType {
+    Grass,
+    Water
+};
+
+class HeightValue
+{
+public:
+    GLfloat Height;
+    TerrainType Terrain;
+};
+
 
 int main()
 {
@@ -283,12 +299,24 @@ int main()
     glCullFace(GL_FRONT);
 
     // CREATE HEIGHT MAP
+    constexpr int HeightMapSize = 32;
+    HeightValue heightMap[HeightMapSize];
+    for(int i = 0; i < HeightMapSize; i++)
+    {
+        heightMap[i].Height = 0.0f;
+        heightMap[i].Terrain = TerrainType::Grass;
+    }
 
     // SET-UP CAMERA
     glm::vec3 pos;
     glm::vec3 front;
     glm::vec3 up;
     camera = new BasicRTSCamera(800, 600, pos, front, up);
+    camera->CalculateViewProjection();
+
+    // HEIGHT MAP SHADER
+
+    // TODO: Buffer initial view and projection matrices
 
     // MEASURE TIME
     GLfloat lastTime = glfwGetTime();
@@ -304,6 +332,7 @@ int main()
         lastTime = nowTime;
         if(MoveCamera(deltaTime))
         {
+            camera->CalculateViewProjection();
             // TODO: Rebuffer camera position uniform
         }
 
