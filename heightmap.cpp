@@ -252,6 +252,29 @@ public:
 };
 
 
+// VERTEX SHADER
+std::string vertexSource = R"(
+#version 330 core
+layout(location = 0) in vec3 vertexPosition;
+layout(location = 1) in vec3 vertexNormal;
+uniform mat4 projection;
+uniform mat4 view;
+void main() {
+gl_Position = projection * view * vec4(vertexPosition, 1.0f);
+}
+)";
+
+// FRAGMENT SHADER
+std::string fragmentSource = R"(
+#version 330 core
+out vec4 color;
+void main() {
+color = vec4(1.0f, 1.0f, 1.0f, 1.0f);
+}
+)";
+
+
+// ENTRY POINT
 int main()
 {
     // INIT GLFW
@@ -294,29 +317,132 @@ int main()
     // depth buffering
     glEnable(GL_DEPTH_TEST);
     // back-face culling
-    glFrontFace(GL_CW); // triangle vertices are read clock-wise
-    glEnable(GL_CULL_FACE);
-    glCullFace(GL_FRONT);
+    //glFrontFace(GL_CW); // triangle vertices are read clock-wise
+    //glEnable(GL_CULL_FACE);
+    //glCullFace(GL_FRONT);
 
     // CREATE HEIGHT MAP
-    constexpr int HeightMapSize = 32;
-    HeightValue heightMap[HeightMapSize];
-    for(int i = 0; i < HeightMapSize; i++)
+    const int N = 8;
+    const int M = 8;
+    const int SIZE = N * M;
+    HeightValue heightMap[SIZE];
+    for(int i = 0; i < SIZE; i++)
     {
         heightMap[i].Height = 0.0f;
         heightMap[i].Terrain = TerrainType::Grass;
     }
 
+    // TODO: Fill vertex array with height positions
+    std::vector<glm::vec3> vertices;
+    vertices.reserve(N * M);
+    for (int y = 0; y < N; y++) {
+        for (int x = 0; x < M; x++) {
+            GLuint index = y*N + x;
+            vertices.push_back(glm::vec3(x, y, heightMap[index].Height));
+        }
+    }
+    GLuint T = (N-1) * (M-1) * 2;
+    GLuint I = T * 3;
+
+    std::vector<GLuint> indices;
+    indices.reserve(I);
+    for (int y = 0; y < N-1; y++) {
+        for (int x = 0; x < M-1; x++) {
+            // upper-left triangle
+            GLuint topLeft = y*N + x;
+            indices.push_back(topLeft);
+            indices.push_back(topLeft + 1);
+            indices.push_back(topLeft + M);
+            // lower-right triangle
+            indices.push_back(topLeft + 1);
+            indices.push_back(topLeft + 1 + M);
+            indices.push_back(topLeft + M);
+        }
+    }
+
+    GLuint VAO, VBO, EBO;
+    glGenVertexArrays(1, &VAO);
+    glGenBuffers(1, &VBO);
+    glGenBuffers(1, &EBO);
+    glBindVertexArray(VAO);
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices) * N * M,
+                 vertices.data(), GL_STATIC_DRAW);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(GLuint) * I,
+                 indices.data(), GL_STATIC_DRAW);
+    // attribute pointer - vertex position
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(glm::vec3),
+                          (GLvoid*)0);
+    glEnableVertexAttribArray(0);
+    glBindVertexArray(0);
+
     // SET-UP CAMERA
-    glm::vec3 pos;
-    glm::vec3 front;
-    glm::vec3 up;
+    glm::vec3 pos(14.2487f, -1.7683f, 15.3325f);
+    glm::vec3 front(0.0f, 1.0f, -1.0f);
+    glm::vec3 up(0.0f, 1.0f, 1.0f);
     camera = new BasicRTSCamera(800, 600, pos, front, up);
     camera->CalculateViewProjection();
 
     // HEIGHT MAP SHADER
+    GLuint vertex = glCreateShader(GL_VERTEX_SHADER);
+    const GLchar* vSource = vertexSource.c_str();
+    glShaderSource(vertex, 1, &vSource, NULL);
+    glCompileShader(vertex);
+    GLint vResult = GL_FALSE;
+    glGetShaderiv(vertex, GL_COMPILE_STATUS, &vResult);
+    if(!vResult)
+    {
+        fprintf(stderr, "---> ERROR: compiling vertex shader!\n");
+        int logLength;
+        glGetShaderiv(vertex, GL_INFO_LOG_LENGTH, &logLength);
+        std::vector<GLchar> shader_err((logLength > 1) ? logLength : 1);
+        glGetShaderInfoLog(vertex, logLength, NULL, &shader_err[0]);
+        fprintf(stderr, "%s\n", &shader_err[0]);
+    }
+
+    GLuint fragment = glCreateShader(GL_FRAGMENT_SHADER);
+    const GLchar* fSource = fragmentSource.c_str();
+    glShaderSource(fragment, 1, &fSource, NULL);
+    glCompileShader(fragment);
+    GLint fResult = GL_FALSE;
+    glGetShaderiv(vertex, GL_COMPILE_STATUS, &fResult);
+    if(!fResult)
+    {
+        fprintf(stderr, "---> ERROR: compiling fragment shader!\n");
+        int logLength;
+        glGetShaderiv(vertex, GL_INFO_LOG_LENGTH, &logLength);
+        std::vector<GLchar> shader_err((logLength > 1) ? logLength : 1);
+        glGetShaderInfoLog(vertex, logLength, NULL, &shader_err[0]);
+        fprintf(stderr, "%s\n", &shader_err[0]);
+    }
+
+    GLuint shader = glCreateProgram();
+    glAttachShader(shader, vertex);
+    glAttachShader(shader, fragment);
+    glLinkProgram(shader);
+    GLint lResult = GL_FALSE;
+    glGetProgramiv(shader, GL_LINK_STATUS, &lResult);
+    if(!lResult)
+    {
+        fprintf(stderr, "---> ERROR: linking shader program:\n");
+        int logLength;
+        glGetProgramiv(shader, GL_INFO_LOG_LENGTH, &logLength);
+        std::vector<GLchar> programError( (logLength > 1) ? logLength : 1 );
+        glGetProgramInfoLog(shader, logLength, NULL, &programError[0]);
+        std::cout << &programError[0] << std::endl;
+    }
+    glDeleteShader(vertex);
+    glDeleteShader(fragment);
 
     // TODO: Buffer initial view and projection matrices
+    glUseProgram(shader);
+    camera->CalculateViewProjection();
+    GLint projLoc = glGetUniformLocation(shader, "projection");
+    glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(*camera->GetProjectionMatrix()));
+    GLint viewLoc = glGetUniformLocation(shader, "view");
+    glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(*camera->GetViewMatrix()));
+    glUseProgram(0);
 
     // MEASURE TIME
     GLfloat lastTime = glfwGetTime();
@@ -333,14 +459,30 @@ int main()
         if(MoveCamera(deltaTime))
         {
             camera->CalculateViewProjection();
-            // TODO: Rebuffer camera position uniform
+            camera->CalculateViewProjection();
+            GLint projLoc = glGetUniformLocation(shader, "projection");
+            glUniformMatrix4fv(projLoc, 1, GL_FALSE,
+                               glm::value_ptr(*camera->GetProjectionMatrix()));
+            GLint viewLoc = glGetUniformLocation(shader, "view");
+            glUniformMatrix4fv(viewLoc, 1, GL_FALSE,
+                               glm::value_ptr(*camera->GetViewMatrix()));
+            glUseProgram(0);
         }
 
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+        // TODO: bind shader
+        glBindVertexArray(VAO);
+        glDrawElements(GL_TRIANGLES, I, GL_UNSIGNED_INT, 0);
+        glBindVertexArray(0);
+        // TODO: unbind shader
+
         glfwSwapBuffers(window);
     }
 
     // CLEANUP
+    glUseProgram(0);
+    glDeleteProgram(shader);
     glfwDestroyWindow(window);
     glfwTerminate();
     return EXIT_SUCCESS;

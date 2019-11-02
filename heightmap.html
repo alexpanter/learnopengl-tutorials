@@ -1,89 +1,289 @@
 <!DOCTYPE html>
 <html>
-<head>
-  <style>
-    body {
-    font-family: Gudea, sans-serif;
-    font-size: 16px;
-    color: #111;
-    background-color: #eee;
-    margin: 30px;
-    padding: 0px;
-    background-image: url(img/header_repeat2.png);
-    background-repeat: repeat-x;
-    width: 600px;
-    };
-    p {
-    display: block;
-    margin-block-start: 1em;
-    margin-block-end: 1em;
-    margin-inline-start: 0px;
-    margin-inline-end: 0px;
-    };
-    div {
-    display: block;
-    }
+  <head>
+    <style>
+      body {
+      font-family: Gudea, sans-serif;
+      font-size: 16px;
+      color: #111;
+      background-color: #eee;
+      margin: 30px;
+      padding: 0px;
+      background-image: url(img/header_repeat2.png);
+      background-repeat: repeat-x;
+      width: 650px;
+      }
+      p {
+      display: block;
+      margin-block-start: 1em;
+      margin-block-end: 1em;
+      margin-inline-start: 0px;
+      margin-inline-end: 0px;
+      }
+      div {
+      display: block;
+      }
+      h1 {
+      color: #303236;
+      margin-bottom: -10px;
+      display: block;
+      font-size: 2em;
+      margin-block-start: 0.67em;
+      margin-block-end: 0.67em;
+      margin-inline-start: 0px;
+      margin-inline-end: 0px;
+      font-weight: bold;
+      }
+      h2 {
+      color: #37425d;
+      font-size: 22px;
+      margin-bottom: -10px;
+      display: block;
+      margin-block-start: 0.83em;
+      margin-block-end: 0.83em;
+      margin-inline-start: 0px;
+      margin-inline-end: 0px;
+      font-weight: bold;
+      }
+      .hljs {
+      color: #e0e2e4;
+      background: #282b2e;
+      padding: 5px 5px 5px 0px;
+      border-radius: 7px;
+      border: 3px solid #bbb;
+      font-size: 15px;
+      }
+      code {
+      font-family: monospace;
+      }
+      img {
+      width: inherit;
+      display: block;
+      margin-left: auto;
+      margin-right: auto;
+      border-radius: 7px;
+      border: 3px solid #bbb;
+      }
+      /* Three image containers (use 25% for four, and 50% for two, etc) */
+      .two-img-column {
+      float: left;
+      width: 45.0%;
+      padding: 5px;
+      }
+      /* Clear floats after image containers */
+      .img-row::after {
+      content: "";
+      clear: both;
+      display: table;
+      }
     </style>
-</head>
+  </head>
 
 
-<body>
-<h1>Height Map</h1>
+  <body>
+    <h1>Terrain Rendering Series</h1>
 
-<h2>Introduction</h2>
+    <p>
+      Welcome to the Terrain Rendering Series, a series in which we will explore
+      techniques for rendering terrains with OpenGL. As this is the first article
+      in the series, we will start with the most basic stuff, and later on explore
+      more advanced topics.
+    </p>
+
+    <p>
+      This series is not intended for the beginning OpenGL programmer, as reading it
+      requires you to be familiar with a lot of concepts. So, if your OpenGL skills
+      are a bit rusty, you are recommended to read some of the basic tutorials first:
+      Shaders, Textures, Camera, Basic Lighting, as well as some of the
+      more advanced topics: Depth testing, Blending, Face Culling, Cube maps.
+    </p>
+
+    <p>
+      You are also highly recommended to be familiar with indexed drawing.
+      Landscape rendering can be combined with deferred rendering for some really
+      interesting post-processing techniques. But this will not be explored in this
+      tutorial series.
+    </p>
+
+    <h2>Height Map</h2>
+
+    <p>
+      The most basic technique for rendering 3d terrain is without doubt using what
+      is called a <strong>height map</strong> (sometimes referred to as a height field).
+      In this technique we define a grid of points, where each point is attributed a
+      height value. If we position this grid horizontally in our 3d world, at height h,
+      and calculate an offset for each grid point by using its height value, we can
+      create 3d terrain. An example of this technique in use can be seen below:
+    </p>
+
+    <div class="img-row">
+      <div class="two-img-column">
+        <img src="img/terrain.png" alt="Snow" style="width:100%">
+      </div>
+      <div class="two-img-column">
+        <img src="img/terrain-wireframe.png" alt="Forest" style="width:100%">
+      </div>
+    </div>
+
+    <p>
+      In the images above we actually have 2 height maps, one for the terrain and one
+      for the water surface. The water surface is rendered using a simple wave generator,
+      which we will explore in a later tutorial. To the right, wireframed drawing mode is
+      temporarily enabled to show the underlying terrain mesh.
+    </p>
+
+    <h2>Representation in Code</h2>
+
+    If we model our array in 1 dimension, which is most typical, we use
+    <pre class="hljs"><code>
+  class HeightValue
+  {
+  public:
+  Glfloat Height;
+  enum TerrainType Terrain;
+  };
+
+  const int HEIGHT_MAP_SIZE = 32;
+  HeightValue heightMap[HEIGHT_MAP_SIZE];
+    </code></pre>
 
 
-<p>
-  We have looked at a variety of graphics techniques, including lighting models,
-  shadow algorithms, model loading, etc. This tutorial will focus on putting it all
-  together to create realistic 3d terrains.
-  Several steps are required, however, to model a 3d terrain, the first of which is
-  the definition of a height map. Height maps are used everywhere and are a really
-  common solution for modeling landscapes in 3d applications. The concept is very
-  simple – to model a landscape we represent it as an array of height values, and
-  use a coordinate to lookup a height value.
-</p>
+    <p>
+      Here we specify the data type for each data point in the height map.
+      We could easily just define the height map as an array of floats, but by using
+      a class as here we can use any set of values for each height point, such
+      assigning the terrain type (water, grass, dirt, rock, etc.), biome information,
+      information on how to do texture blending, data for generating foliage, or even
+      create functions for extracting values based on external parameters.
+      This will prove very useful later on when we wish to populate our height map with
+      landscape textures, trees, foliage, animals, etc.
+      Now we just need to figure out how to pass this information on to OpenGL in a
+      useful way. Since OpenGL is a rasterization pipeline based on triangles, we need to
+      convert our height field into a triangle mesh such that we can render it, not as
+      individual data points but as a contiguous segment of land.
+      Thus, we need a method for constructing triangles from the height map as seen below:
+    </p>
+
+    <img src="img/terrain-mesh-triangles.png" alt="Terrain mesh triangulation"
+         style="width: 85%; border: none;">
+
+    <p>
+      To the left we see the abstract representation of our height field, where each
+      point is a single height point. What we wish to obtain is the image on the right,
+      where a triangle grid is formed as to connect each grid point into a mesh.
+      We say about the grid that it is “discrete uniform grid”, meaning that the distance
+      between each grid point is the same and since each grid point (x,y) is defined as
+      non-negative integer coordinates.
+    </p>
+
+    <p>
+      There is a bit of math involved in this process, though it is not too complicated.
+      First, we need to create a data structure for containing the triangles.
+      As demonstrated in earlier tutorials, indexed rendering can be used for 3d objects
+      where many triangles share corners, such as to minimize GPU memory usage.
+      It’s quite easy to tell OpenGL to read vertices from a buffer 3 at a time and
+      connect them together as a triangle (this step is called the ‘primitive assembly’),
+      so we need to create an array and then add the indices for each triangle corner,
+      in a sequential order.
+    </p>
+
+    <p>
+      Given a height field of size N * M (where N can be the same as M), the number of
+      triangles T in the mesh is computed as
+    </p>
+
+    \[T = (N – 1) \cdot (M – 1) \cdot 2\]
+
+    <p>
+      And the number of indices I is
+    </p>
+
+    \[I = T \cdot 3\]
+
+    <p>
+      The code for generating the triangle indices looks, then, as following:
+    </p>
+    <pre class="hljs"><code>
+  // TODO: Fill vertex array with height positions
+  std::vector&lt;glm::vec3&gt; vertices;
+  vertices.reserve(N * M);
+  for (int y = 0; y < N; y++) {
+      for (int x = 0; x < M; x++) {
+          GLuint index = y*N + x;
+          vertices.push_back(glm::vec3(x, y, heightMap[index].Height));
+      }
+  }
+  GLuint T = (N-1) * (M-1) * 2;
+  GLuint I = T * 3;
+
+  std::vector&lt;GLuint&gt; indices;
+  indices.reserve(I);
+  for (int y = 0; y < N-1; y++) {
+      for (int x = 0; x < M-1; x++) {
+          // upper-left triangle
+          GLuint topLeft = y*N + x;
+          indices.push_back(topLeft);
+          indices.push_back(topLeft + 1);
+          indices.push_back(topLeft + M);
+          // lower-right triangle
+          indices.push_back(topLeft + 1);
+          indices.push_back(topLeft + 1 + M);
+          indices.push_back(topLeft + M);
+      }
+  }
+                          </code></pre>
+
+    <p>
+      We now have the triangle indices, in correct order, for our mesh. The only
+      thing remaining is to set the attribute pointers, and send them to the GPU:
+    </p>
+
+    <pre class="hljs"><code>
+  GLuint VAO, VBO, EBO;
+  glGenVertexArrays(1, &VAO);
+  glGenBuffers(1, &VBO);
+  glGenBuffers(1, &EBO);
+
+  glBindVertexArray(VAO);
+  glBindBuffer(GL_ARRAY_BUFFER, VBO);
+  glBufferData(GL_ARRAY_BUFFER, sizeof(vertices) * N * M,
+               vertices.data(), GL_STATIC_DRAW);
+
+  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+  glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(GLuint) * I,
+               indices.data(), GL_STATIC_DRAW);
+
+  // attribute pointer - vertex position
+  glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(glm::vec3),
+                        (GLvoid*)0);
+  glEnableVertexAttribArray(0);
+
+  glBindVertexArray(0);
+    </code></pre>
+
+    <p>
+      And when we wish to render the surface mesh:
+    </p>
+
+    <pre class="hljs"><code>
+  glBindVertexArray(VAO);
+  glDrawElements(GL_TRIANGLES, I, GL_UNSIGNED_INT, 0);
+  glBindVertexArray(0);
+    </code></pre>
 
 
-If we model our array in 1 dimension, which is most typical, we use
-<pre><code>
-class HeightValue
-{
-public:
-    Glfloat Height;
-    enum TerrainType Terrain;
-};
-
-const int HEIGHT_MAP_SIZE = 32;
-HeightValue heightMap[HEIGHT_MAP_SIZE];
-</code></pre>
-
-
-<p>
-  Here we specify the data type for each data point in the height map.
-  We could easily just define the height map as an array of floats, but by using
-  a class as here we can use any set of values for each height point, such
-  assigning the terrain type (water, grass, dirt, rock, etc.), biome information,
-  information on how to do texture blending, data for generating foliage, or even
-  create functions for extracting values based on external parameters.
-  This will prove very useful later on when we wish to populate our height map with
-  landscape textures, trees, foliage, animals, etc.
-  Now we just need to figure out how to pass this information on to OpenGL in a
-  useful way. Since OpenGL is a rasterization pipeline based on triangles, we need to
-  convert our height field into a triangle mesh such that we can render it, not as
-  individual data points but as a contiguous segment of land.
-  Thus, we need a method for constructing triangles from the height map as seen below:
-</p>
 
 
 
 
+    <h2>Further reading</h2>
+    <ul>
+      <li><a href="http://blog.selfshadow.com/publications/s2013-shading-course/hoffman/s2013_pbs_physics_math_notes.pdf" target="_blank">Link text</a>: Very good description</li>
+    </ul>
+    <!--\[ L_o(p,\omega_o) = \int\limits_{\Omega} f_r(p,\omega_i,\omega_o) L_i(p,\omega_i) n \cdot \omega_i d\omega_i \]-->
 
-
-<!--\[ L_o(p,\omega_o) = \int\limits_{\Omega} f_r(p,\omega_i,\omega_o) L_i(p,\omega_i) n \cdot \omega_i d\omega_i \]-->
-
-</body>
+  </body>
   <!--script type="text/javascript" src="mathjax.js"></script-->
   <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
-<script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+  <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
 </html>
