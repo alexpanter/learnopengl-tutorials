@@ -168,8 +168,10 @@
   TerrainType Terrain;
   };
 
-  const int HEIGHT_MAP_SIZE = 32;
-  HeightMapEntry heightMap[HEIGHT_MAP_SIZE];
+  const int N = 8;
+  const int M = 8;
+  const int SIZE = N * M;
+  HeightMapEntry heightMap[SIZE];
     </code></pre>
 
 
@@ -178,17 +180,23 @@
       which contains two values for each height point: A height value
       (<code>GLfloat Height</code>), and a terrain type
       (<code>TerrainType Terrain</code>).
+    </p>
+
+    <p>
       We could easily just define the height map as an array of floats, but by using
-      a class as here we can use any set of values for each height point, such
-      assigning the terrain type (water, grass, dirt, rock, etc.), biome information,
+      a custom object as we do here, we can attach any set of values to each grid point,
+      such assigning the terrain type (water, grass, dirt, rock, etc.), biome information,
       information on how to do texture blending, data for generating foliage, or even
       create functions for extracting values based on external parameters.
-      This will prove very useful later on when we wish to populate our height map with
-      landscape textures, trees, foliage, animals, etc.
+      This will prove very useful later on, should we wish to populate our game world
+      with landscape textures, trees, foliage, animals, etc.
+    </p>
+
+    <p>
       Now we just need to figure out how to pass this information on to OpenGL in a
-      useful way. Since OpenGL is a rasterization pipeline based on triangles, we need to
-      convert our height field into a triangle mesh such that we can render it, not as
-      individual data points but as a contiguous segment of land.
+      useful way. Since OpenGL is a rasterization pipeline based on triangles, we need
+      to convert our height field into a triangle mesh such that we can render it:
+      Not as individual data points but as a contiguous segment of land.
       Thus, we need a method for constructing triangles from the height map as seen below:
     </p>
 
@@ -261,9 +269,13 @@
                           </code></pre>
 
     <p>
-      Here we create a buffer (<code>std::vector</code>) of 3d points by using the
-      height values of our height map array. By using a nested for-loop, we can
-      simply pass the values for <i>x</i> and <i>y</i> as is.<br>
+      Here we create a buffer (<code>std::vector&lt;glm::vec3&gt;</code>) of 3d
+      points by using the height values of our height map array.
+      By using a nested for-loop, we can simply pass the values for <i>x</i>
+      and <i>y</i> as is.
+    </p>
+
+    <p>
       After this, we create a buffer for the indices and iterate in a similar
       fashion. We now have the triangle indices, in correct order, for our mesh.
       The only thing remaining is to set the attribute pointers, and send them
@@ -310,8 +322,9 @@
       perspective camera, as seen in real-time strategy games. This is suitable
       for an overview of the terrain, as it provides methods for hovering across
       the landscape. But depending on your application (e.g. first-person shooter
-      game), you might want to adapt to a different camera model (see the camera
-      tutorial: <a href="https://learnopengl.com/Getting-started/Camera">Camera</a>).
+      game), you might want to adapt to a different camera model (see the
+      <a href="https://learnopengl.com/Getting-started/Camera">camera</a>
+      tutorial).
     </p>
 
     <p>
