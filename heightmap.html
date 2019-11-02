@@ -93,16 +93,31 @@
     <p>
       This series is not intended for the beginning OpenGL programmer, as reading it
       requires you to be familiar with a lot of concepts. So, if your OpenGL skills
-      are a bit rusty, you are recommended to read some of the basic tutorials first:
-      Shaders, Textures, Camera, Basic Lighting, as well as some of the
-      more advanced topics: Depth testing, Blending, Face Culling, Cube maps.
+      are a bit rusty, you are welcome to read some of the basic tutorials first, and
+      then come back to this. This tutorials assumes you to have knowledge of (and
+      will not introduce!) following OpenGL concepts:<br>
+      <a href="https://learnopengl.com/Getting-started/Shaders">Shaders</a>,
+      <a href="https://learnopengl.com/Getting-started/Transformations">Transformations</a>
+      <a href="https://learnopengl.com/Getting-started/Camera">Camera</a>,
+      <a href="https://learnopengl.com/Lighting/Basic-Lighting">Basic Lighting</a>,
+      <a href="https://learnopengl.com/Advanced-OpenGL/Depth-testing">Depth Testing</a>,
+      <a href="https://learnopengl.com/Advanced-OpenGL/Blending">Blending</a>,
+      <a href="https://learnopengl.com/Advanced-OpenGL/Face-culling">Face Culling</a>,
+      <a href="https://learnopengl.com/Advanced-OpenGL/Cubemaps">Cubemaps</a>,
+      <a href="https://learnopengl.com/Advanced-OpenGL/Geometry-Shader">Geometry Shaders</a>,
     </p>
 
     <p>
-      You are also highly recommended to be familiar with indexed drawing.
-      Landscape rendering can be combined with deferred rendering for some really
-      interesting post-processing techniques. But this will not be explored in this
-      tutorial series.
+      Although not a strict requirement, it is recommended that you are familiar with
+      indexed drawing (using <code>glDrawElements</code>). The techniques taught in
+      this tutorial series can be extended with deferred rendering for larger artistical
+      freedom, but that is a somewhat relaxed requirement. Implementing deferred
+      rendering is not a focus of this tutorial series.
+    </p>
+
+    <p>
+      If you follow the code snippets in this tutorial, it is <strong>required</strong>
+      that you set your compiler version to at least C++11. And C++17 is recommended.
     </p>
 
     <h2>Height Map</h2>
@@ -132,24 +147,37 @@
       temporarily enabled to show the underlying terrain mesh.
     </p>
 
-    <h2>Representation in Code</h2>
+    <h2>Programming a Height Map</h2>
 
-    If we model our array in 1 dimension, which is most typical, we use
+    <p>
+      To represent a height map in code, this tutorial uses a flat 1-dimensional array
+      where each index contains a custom object appropriate for modelling a landscape.
+      This representation is shown below.
+    </p>
+
     <pre class="hljs"><code>
-  class HeightValue
+  enum class TerrainType {
+      Grass,
+      Water
+  };
+
+  class HeightMapEntry
   {
   public:
   Glfloat Height;
-  enum TerrainType Terrain;
+  TerrainType Terrain;
   };
 
   const int HEIGHT_MAP_SIZE = 32;
-  HeightValue heightMap[HEIGHT_MAP_SIZE];
+  HeightMapEntry heightMap[HEIGHT_MAP_SIZE];
     </code></pre>
 
 
     <p>
-      Here we specify the data type for each data point in the height map.
+      Here we specify the data type for each data point in the height map as a class
+      which contains two values for each height point: A height value
+      (<code>GLfloat Height</code>), and a terrain type
+      (<code>TerrainType Terrain</code>).
       We could easily just define the height map as an array of floats, but by using
       a class as here we can use any set of values for each height point, such
       assigning the terrain type (water, grass, dirt, rock, etc.), biome information,
@@ -171,9 +199,9 @@
       To the left we see the abstract representation of our height field, where each
       point is a single height point. What we wish to obtain is the image on the right,
       where a triangle grid is formed as to connect each grid point into a mesh.
-      We say about the grid that it is “discrete uniform grid”, meaning that the distance
-      between each grid point is the same and since each grid point (x,y) is defined as
-      non-negative integer coordinates.
+      We say about the grid that it is a <i>“discrete uniform grid”</i>, meaning that the
+      distance between each grid point is the same, and where each grid point (x,y) is
+      an integer coordinate set.
     </p>
 
     <p>
@@ -181,21 +209,21 @@
       First, we need to create a data structure for containing the triangles.
       As demonstrated in earlier tutorials, indexed rendering can be used for 3d objects
       where many triangles share corners, such as to minimize GPU memory usage.
-      It’s quite easy to tell OpenGL to read vertices from a buffer 3 at a time and
-      connect them together as a triangle (this step is called the ‘primitive assembly’),
-      so we need to create an array and then add the indices for each triangle corner,
+      It’s quite simple to tell OpenGL to read vertices from a buffer 3 at a time and
+      connect them together to form a triangle.
+      So we need to create an array and then add the indices for each triangle corner,
       in a sequential order.
     </p>
 
     <p>
-      Given a height field of size N * M (where N can be the same as M), the number of
-      triangles T in the mesh is computed as
+      Given a height field of size <i>N * M</i> (where <i>N</i> can be the same as
+      <i>M</i>), the number of triangles <i>T</i> in the mesh is computed as
     </p>
 
     \[T = (N – 1) \cdot (M – 1) \cdot 2\]
 
     <p>
-      And the number of indices I is
+      And the number of indices <i>I</i> is
     </p>
 
     \[I = T \cdot 3\]
@@ -204,7 +232,6 @@
       The code for generating the triangle indices looks, then, as following:
     </p>
     <pre class="hljs"><code>
-  // TODO: Fill vertex array with height positions
   std::vector&lt;glm::vec3&gt; vertices;
   vertices.reserve(N * M);
   for (int y = 0; y < N; y++) {
@@ -234,8 +261,13 @@
                           </code></pre>
 
     <p>
-      We now have the triangle indices, in correct order, for our mesh. The only
-      thing remaining is to set the attribute pointers, and send them to the GPU:
+      Here we create a buffer (<code>std::vector</code>) of 3d points by using the
+      height values of our height map array. By using a nested for-loop, we can
+      simply pass the values for <i>x</i> and <i>y</i> as is.<br>
+      After this, we create a buffer for the indices and iterate in a similar
+      fashion. We now have the triangle indices, in correct order, for our mesh.
+      The only thing remaining is to set the attribute pointers, and send them
+      to the GPU:
     </p>
 
     <pre class="hljs"><code>
@@ -271,7 +303,119 @@
   glBindVertexArray(0);
     </code></pre>
 
+    <h2>Camera Model</h2>
 
+    <p>
+      Different camera models exist, but for this tutorial series we use a bird
+      perspective camera, as seen in real-time strategy games. This is suitable
+      for an overview of the terrain, as it provides methods for hovering across
+      the landscape. But depending on your application (e.g. first-person shooter
+      game), you might want to adapt to a different camera model (see the camera
+      tutorial: <a href="https://learnopengl.com/Getting-started/Camera">Camera</a>).
+    </p>
+
+    <p>
+      For this camera model we define a camera class with the following interface:
+    </p>
+
+    <pre class="hljs"><code>
+  class BasicRTSCamera
+  {
+  public:
+      // methods for camera movement
+      void MoveNorth(GLfloat cameraSpeed);
+      void MoveSouth(GLfloat cameraSpeed);
+      void MoveWest(GLfloat cameraSpeed);
+      void MoveEast(GLfloat cameraSpeed);
+      void MoveUp(GLfloat cameraSpeed);
+      void MoveDown(GLfloat cameraSpeed);
+      void RotateLeft(GLfloat cameraSpeed);
+      void RotateRight(GLfloat cameraSpeed);
+
+      // methods for rendering the scene
+      void CalculateViewProjection();
+      const glm::mat4* GetViewMatrix() const;
+      const glm::mat4* GetProjectionMatrix() const;
+  };
+    </code></pre>
+
+    <p>
+      These methods move that camera across the surface of the height map,
+      up and down along the vertical axis (in this tutorial, we use <i>z</i> to
+      indicate terrain height), and a rotation fixed around the camera's viewing
+      direction. This camera model disallows any <i>roll</i> around the camera's
+      viewing angle (remember <i>pitch</i>, <i>yaw</i>, and <i>roll</i>?).
+    </p>
+
+    <p>
+      The definition of these methods can be found in the
+      <a href="">source code</a>
+      for this tutorial (omitted here for brevity). Creating a camera class is
+      highly recommended.
+    </p>
+
+
+
+    <h2>Setting up "the rest"</h2>
+
+    <p>
+      "The rest" is a broad term, but here it refers to creating a GLFW window,
+      compiling shaders, configuring your build (I use GNU Makefile), linking to
+      the external libraries, capturing input events, and measuring program time
+      to balance out the camera's movement speed.
+      <br><br>
+
+      All these topics have been covered in sufficient depth in earlier tutorials,
+      so if you are unsure about how to proceed you may want to take a look at them
+      again, or simply check out the
+      <a href="">source code</a>
+      for this tutorial.
+    </p>
+
+    <p>
+      The result should look like the following:
+    </p>
+
+    <div class="img-row">
+      <div class="two-img-column">
+        <img src="img/heightmap-initial-rendering.png" alt="Snow" style="width:100%">
+      </div>
+      <div class="two-img-column">
+        <img src="img/heightmap-initial-rendering-wireframe.png" alt="Forest" style="width:100%">
+      </div>
+    </div>
+
+    <p>
+      If your result does not resemble the images above or you experience a completely
+      black screen, you can compare your code with the application's
+      <a href="">source code</a>.
+    </p>
+
+    <p>
+      In the next tutorial we will focus on making the landscape look a bit more like
+      a landscape.
+    </p>
+
+
+    <h2>Optimizations</h2>
+
+    <p>
+      You may want to (ie. you are <strong>strongly</strong> encouraged to) enable
+      face culling when rendering large landscape meshes, since there is no need to
+      render each triangle in the mesh from both sides. Fortunately, it is a quick
+      setup:
+    </p>
+
+    <pre class="hljs"><code>
+  // back-face culling
+  glFrontFace(GL_CCW); // triangle vertices are read counter clock-wise
+  glEnable(GL_CULL_FACE);
+  glCullFace(GL_BACK);
+    </code></pre>
+
+    <p>
+      Just make sure that the rest of your scene also 'faces' the right way :).
+    </p>
 
 
 
@@ -282,8 +426,10 @@
     </ul>
     <!--\[ L_o(p,\omega_o) = \int\limits_{\Omega} f_r(p,\omega_i,\omega_o) L_i(p,\omega_i) n \cdot \omega_i d\omega_i \]-->
 
+    <h2>Questions and answers...</h2>
+
+
   </body>
-  <!--script type="text/javascript" src="mathjax.js"></script-->
   <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
   <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
 </html>

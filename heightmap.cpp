@@ -244,7 +244,7 @@ enum class TerrainType {
     Water
 };
 
-class HeightValue
+class HeightMapEntry
 {
 public:
     GLfloat Height;
@@ -317,22 +317,21 @@ int main()
     // depth buffering
     glEnable(GL_DEPTH_TEST);
     // back-face culling
-    //glFrontFace(GL_CW); // triangle vertices are read clock-wise
-    //glEnable(GL_CULL_FACE);
-    //glCullFace(GL_FRONT);
+    glFrontFace(GL_CCW); // triangle vertices are read counter clock-wise
+    glEnable(GL_CULL_FACE);
+    glCullFace(GL_BACK);
 
     // CREATE HEIGHT MAP
     const int N = 8;
     const int M = 8;
     const int SIZE = N * M;
-    HeightValue heightMap[SIZE];
+    HeightMapEntry heightMap[SIZE];
     for(int i = 0; i < SIZE; i++)
     {
         heightMap[i].Height = 0.0f;
         heightMap[i].Terrain = TerrainType::Grass;
     }
 
-    // TODO: Fill vertex array with height positions
     std::vector<glm::vec3> vertices;
     vertices.reserve(N * M);
     for (int y = 0; y < N; y++) {
@@ -458,6 +457,7 @@ int main()
         lastTime = nowTime;
         if(MoveCamera(deltaTime))
         {
+            glUseProgram(shader);
             camera->CalculateViewProjection();
             camera->CalculateViewProjection();
             GLint projLoc = glGetUniformLocation(shader, "projection");
@@ -471,11 +471,11 @@ int main()
 
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        // TODO: bind shader
+        glUseProgram(shader);
         glBindVertexArray(VAO);
         glDrawElements(GL_TRIANGLES, I, GL_UNSIGNED_INT, 0);
         glBindVertexArray(0);
-        // TODO: unbind shader
+        glUseProgram(0);
 
         glfwSwapBuffers(window);
     }
