@@ -1,0 +1,600 @@
+<html>
+<p>
+  PBR, or more commonly known as <def>physically based rendering</def> is a collection of render techniques that are more or less based on the same underlying theory which more closely matches that of the physical world. As physically based rendering aims to mimic light in a physically plausible way it generally looks more realistic compared to our original lighting algorithms like Phong and Blinn-Phong. Not only does it look better, as it closely approximates actual physics, we (and especially the artists) can author surface materials based on physical parameters without having to resort to cheap hacks and tweaks to make the lighting look right. One of the bigger advantages of authoring materials based on physical parameters is that these materials will look correct regardless of lighting conditions; something that is not true in non-PBR pipelines.
+
+<p>
+  Physically based rendering is still nonetheless an approximation of reality (based on the principles of physics) which is why it's not called physical shading, but physically <em>based</em> shading. For a PBR lighting model to be considered physically based it has to satisfy the following 3 conditions (don't worry, we'll get to them soon enough):
+</p>
+
+<ol>
+  <li>Be based on the microfacet surface model.</li>
+  <li>Be energy conserving.</li>
+  <li>Use a physically based BRDF.</li>
+</ol>
+
+<p>
+  In this PBR tutorial series/guide we'll be focusing on the PBR approach as originally explored by Disney and adopted for real-time display by Epic Games. Their approach based on the <def>metallic workflow</def> is decently documented, widely adopted on most popular engines and looks visually amazing. By the end of the series we'll have something that looks like this:
+</p>
+
+<img src="/img/pbr/ibl_specular_result_textured.png" class="" alt="An example of a PBR render (with IBL) in OpenGL on textured materials."/>
+
+<p>
+  Keep in mind the topics in this tutorial series are rather advanced so it is advised to have a good understanding of OpenGL and shader lighting. Some of the more advanced knowledge you'll need for this series are: <a href="https://learnopengl.com/#!Advanced-OpenGL/Framebuffers" target="_blank">framebuffers</a>, <a href="https://learnopengl.com/#!Advanced-OpenGL/Cubemaps" target="_blank">cubemaps</a>, <a href="https://learnopengl.com/#!Advanced-Lighting/Gamma-Correction" target="_blank">gamma correction</a>, <a href="https://learnopengl.com/#!Advanced-Lighting/HDR" target="_blank">HDR</a> and <a href="https://learnopengl.com/#!Advanced-Lighting/Normal-Mapping" target="_blank">normal mapping</a>. We'll also delve into some advanced mathematics, but I'll do my best to explain the concepts as clear as possible.
+</p>
+
+<h2>The microfacet model</h2>
+<p>
+  All the PBR techniques are based on the theory of microfacets. The theory describes that any surface at a microscopic scale can be described by tiny little perfectly reflective mirrors called <def>microfacets</def>. According to the roughness of a surface the alignment of these tiny little mirrors can differ quite a lot:
+</p>
+
+<img src="/img/pbr/microfacets.png" class="clean" alt="Different surface types for OpenGL PBR"/>
+
+<p>
+  The rougher a surface is, the more chaotically aligned each microfacet will be along the surface. The effect of these tiny-like mirror alignments is that when specifically talking about specular lighting/reflection the incoming light rays are more likely to <def>scatter</def> along completely different directions on rougher surfaces, resulting in a more widespread specular reflection. In contrast, on a smooth surface the light rays are more likely to reflect in roughly the same direction, giving us smaller and sharper reflections:
+</p>
+
+<img src="/img/pbr/microfacets_light_rays.png" class="clean" alt="Effect of light scattering on different surface types for OpenGL PBR"/>
+
+<p>
+  No surface is completely smooth on a microscopic level, but seeing as these microfacets are small enough that we can't make a distinction between them on a per-pixel basis we statistically approximate the surface's microfacet roughness given a <def>roughness</def> parameter. Based on the roughness of a surface we can calculate the ratio of microfacets roughly aligned to some vector \(h\). This vector \(h\) is the <def>halfway vector</def> that sits halfway between the light \(l\) and view \(v\) vector. We've discussed the halfway vector before in the <a href="https://learnopengl.com/#!Advanced-Lighting/Advanced-Lighting" target="_blank">advanced lighting</a> tutorial which is calculated as the sum of \(l\) and \(v\) divided by its length:
+</p>
+
+\[
+   h = \frac{l + v}{\|l + v\|}
+\]
+
+<p>
+  The more the microfacets are aligned to the halfway vector, the sharper and stronger the specular reflection. Together with a roughness parameter that varies between 0 and 1 we can statistically approximate the alignment of the microfacets:
+</p>
+
+<img src="/img/pbr/ndf.png" alt="Visualized NDF (Normalized Distribution Function) in OpenGL PBR"/>
+
+<p>
+  We can see that higher roughness values display a much larger specular reflection shape, in contrast with the smaller and sharper specular reflection shape of smooth surfaces.
+</p>
+
+<h2>Energy conservation</h2>
+<p>
+  The microfacet approximation employs a form of <def>energy conservation</def>: outgoing light energy should never exceed the incoming light energy (excluding emissive surfaces). Looking at the above image we see the specular reflection area increase, but also its brightness decrease at increasing roughness levels. If the specular intensity were to be the same at each pixel regardless of the size of the specular shape the rougher surfaces would emit much more energy, violating the energy conservation principle. This is why we see specular reflections more intensely on smooth surfaces and more dimly on rough surfaces.
+</p>
+
+<p>
+  For energy conservation to hold we need to make a clear distinction between diffuse and specular light. The moment a light ray hits a surface, it gets split in both a <def>refraction</def> part and a <def>reflection</def> part. The reflection part is light that directly gets reflected and doesn't enter the surface; this is what we know as specular lighting. The refraction part is the remaining light that enters the surface and gets absorbed; this is what we know as diffuse lighting.
+  </p>
+
+<p>
+  There are some nuances here as refracted light doesn't immediately get absorbed by touching the surface. From physics, we know that light can effectively be considered a beam of energy that keeps moving forward until it loses all of its energy; the way a light beam loses energy is by collision. Each material consists of tiny little particles that can collide with the light ray as illustrated below. The particles absorb some or all of the light's energy at each collision which is converted into heat.
+</p>
+
+<img src="/img/pbr/surface_reaction.png" class="clean" alt="Light as reflected and refracted light with absorption in OpenGL PBR"/>
+
+<p>
+    Generally, not all energy is absorbed and the light will continue to <def>scatter</def> in a (mostly) random direction at which it collides with other particles until its energy is depleted or it leaves the surface again. Light rays re-emerging out of the surface contribute to the surface's observed (diffuse) color. In physically based rendering we however make the simplifying assumption that all refracted light gets absorbed and scattered at a very small area of impact, ignoring the effect of scattered light rays that would've exited the surface at a distance. Specific shader techniques that do take this into account are known as <def>subsurface scattering</def> techniques that significantly improve the visual quality on materials like skin, marble or wax, but come at the price of performance.
+  </p>
+
+<p>
+  An additional subtlety when it comes to reflection and refraction are surfaces that are <def>metallic</def>. Metallic surfaces react differently to light compared to non-metallic surfaces (also known as <def>dielectrics</def>). Metallic surfaces follow the same principles of reflection and refraction, but <strong>all</strong> refracted light gets directly absorbed without scattering, leaving only reflected or specular light; metallic surfaces show no diffuse colors. Because of this apparent distinction between metals and dielectrics they're both treated differently in the PBR pipeline which we'll delve into further down the article.
+</p>
+
+<p>
+  This distinction between reflected and refracted light brings us to another observation regarding energy preservation: they're <strong>mutually exclusive</strong>. Whatever light energy gets reflected will no longer be absorbed by the material itself. Thus, the energy left to enter the surface as refracted light is directly the resulting energy after we've taken reflection into account.
+</p>
+
+<p>
+  We preserve this energy conserving relation by first calculating the specular fraction that amounts the percentage the incoming light ray reflects its energy. The fraction of refracted light is then directly calculated from the specular fraction as:
+</p>
+
+<pre><code>
+float kS = calculateSpecularComponent(...); // reflection/specular fraction
+float kD = 1.0 - kS;                        // refraction/diffuse  fraction
+</code></pre>
+
+<p>
+  This way we know both the amount the incoming light reflects and the amount the incoming light refracts while adhering to the energy conservation principle. Given this approach it is impossible for both the refracted/diffuse and reflected/specular contribution to exceed <code>1.0</code>, thus ensuring the sum of their energy never exceeds the incoming light energy; something we did not take into account in the previous lighting tutorials.
+</p>
+
+<h2>The reflectance equation</h2>
+<p>
+  This brings us to something called the <a href="https://en.wikipedia.org/wiki/Rendering_equation" target="_blank">render equation</a>, an elaborate equation some very smart folks out there came up with that is currently the best model we have for simulating the visuals of light. Physically based rendering strongly follows a more specialized version of the render equation known as the <def>reflectance equation</def>. To properly understand PBR it's important to first build a solid understanding of the reflectance equation:
+</p>
+
+ \[
+  L_o(p,\omega_o) = \int\limits_{\Omega} f_r(p,\omega_i,\omega_o) L_i(p,\omega_i) n \cdot \omega_i  d\omega_i
+  \]
+
+<p>
+  The reflectance equation appears daunting at first, but as we'll slowly dissect it you'll see it slowly starts to makes sense. To understand the equation, we have to delve into a bit of <def>radiometry</def>. Radiometry is the measurement of electromagnetic radiation (including visible light). There are several radiometric quantities we can use to measure light over surfaces and directions, but we will only discuss a single one that's relevant to the reflectance equation known as <def>radiance</def>, denoted here as \(L\). Radiance is used to quantify the magnitude or strength of light coming from a single direction. It's a bit tricky to understand at first as radiance is a combination of a multiple physical quantities so we'll focus on those first:
+</p>
+
+<p>
+  <strong>Radiant flux</strong>: radiant flux \(\Phi\) is the transmitted energy of a light source measured in Watts. Light is a collective sum of energy over multiple different wavelengths, each wavelength associated with a particular (visible) color. The emitted energy of a light source can  therefore be thought of as a function of all its different wavelengths. Wavelengths between 390nm to 700nm (nanometers) are considered part of the visible light spectrum i.e. wavelengths the human eye is able to perceive. Below you'll find an image of the different energies per wavelength of daylight:
+</p>
+
+  <img src="/img/pbr/daylight_spectral_distribution.png" class="clean" alt="Spectral distribution of daylight"/>
+
+<p>
+    The radiant flux measures the total area of this function of different wavelengths. Directly taking this measure of wavelengths as input in computer graphics is slightly impractical so we often make the simplification of representing radiant flux not as a function of varying wavelength strengths, but as a light color triplet encoded as <code>RGB</code> (or as we'd commonly call it: light color). This encoding does come at quite a loss of information, but this is generally negligible for visual aspects.
+</p>
+
+<p>
+  <strong>Solid angle</strong>: the solid angle denoted as \(\omega\) tells us the size or area of a shape projected onto a unit sphere. The area of the projected shape onto this unit sphere is known as the <def>solid angle</def>; you can visualize the solid angle as a direction with volume:
+</p>
+
+  <img src="/img/pbr/solid_angle.png" class="clean" alt="Solid angle"/>
+
+ <p>
+   Think of being an observer at the center of this unit sphere and looking in the direction of the shape; the size of the silhouette you make out of it is the solid angle.
+</p>
+
+<p>
+  <strong>Radiant intensity</strong>: radiant intensity measures the amount of radiant flux per solid angle or the strength of a light source over a projected area onto the unit sphere. For instance, given an omnidirectional light that radiates equally in all directions the radiant intensity can give us its energy over a specific area (solid angle):
+</p>
+
+  <img src="/img/pbr/radiant_intensity.png" class="clean" alt="Radiant intensity"/>
+
+<p>
+  The equation to describe the radiant intensity is defined as follows:
+</p>
+
+  \[I = \frac{d\Phi}{d\omega}\]
+
+<p>
+  Where \(I\) is the radiant flux \(\Phi\) over the solid angle \(\omega\).
+</p>
+
+<p>
+  With knowledge of radiant flux, radiant intensity and the solid angle we can finally describe the equation for <strong>radiance</strong>, which is described as the total observed energy over an area \(A\) over the solid angle \(\omega\) of a light of radiant intensity \(\Phi\):
+</p>
+
+  \[L=\frac{d^2\Phi}{ dA d\omega \cos\theta}\]
+
+  <img src="/img/pbr/radiance.png" class="clean" alt="Diagram of radiance"/>
+
+<p>
+  Radiance is a radiometric measure of the amount of light in an area scaled by the <def>incident</def> (or incoming) angle \(\theta\) of the light to the surface's normal as \(\cos \theta\): light is weaker the less it directly radiates onto the surface and strongest when it is directly perpendicular to the surface. This is similar to our perception of diffuse lighting from the <a href="https://learnopengl.com/#!Lighting/Basic-lighting" target="_blank">basic lighting</a> tutorials as \(\cos\theta\) directly corresponds to the dot product between the light's direction vector and the surface's normal:
+</p>
+
+<pre><code>
+float cosTheta = dot(lightDir, N);
+</code></pre>
+
+<p>
+  The radiance equation is quite useful as it consists of most physical quantities we're interested in. If we consider the solid angle \(\omega\) and the area \(A\) to be infinitely small, we can use radiance to measure the flux of a single ray of light hitting a single point in space. This relation allows us to calculate the radiance of a single light ray influencing a single (fragment) point; we effectively translate the solid angle \(\omega\) into a direction vector \(\omega\), and \(A\) into a point \(p\). This way we can directly use radiance in our shaders to calculate a single light ray's per-fragment contribution.
+</p>
+
+<p>
+  In fact, when it comes to radiance we generally care about <strong>all</strong> incoming light onto a point \(p\) which is the sum of all radiance known as <def>irradiance</def>. With knowledge of both radiance and irradiance we can get back to the reflectance equation:
+</p>
+
+
+  \[
+  L_o(p,\omega_o) = \int\limits_{\Omega} f_r(p,\omega_i,\omega_o) L_i(p,\omega_i) n \cdot \omega_i  d\omega_i
+  \]
+
+<p>
+  We now know that \(L\) in the render equation represents the radiance of some point \(p\) and some incoming infinitely small solid angle \(\omega_i\) which can be thought of as an incoming direction vector \(\omega_i\). Remember that \(\cos \theta\) scales the energy based on the light's incident angle to the surface which we find in the reflectance equation as \(n \cdot \omega_i\). The reflectance equation calculates the sum of reflected radiance \(L_o(p, \omega_o)\) of a point \(p\) in direction \(\omega_o\) which is the outgoing direction to the viewer. Or to put it differently: \(L_o\) measures the reflected sum of the lights' irradiance onto point \(p\) as viewed from \(\omega_o\).
+</p>
+
+<p>
+  As the reflectance equation is based around irradiance which is the sum of all incoming radiance we measure light of not just a single incoming light direction, but of all incoming light directions within a hemisphere \(\Omega\) centered around point \(p\). A <def>hemisphere</def> can be described as half a sphere aligned around a surface's normal \(n\):
+  </p>
+
+  <img src="/img/pbr/hemisphere.png" class="clean" alt="Hemisphere"/>
+
+<p>
+  To calculate the total of values inside an area or, in the case of a hemisphere, a volume we use a mathematical construct called an <def>integral</def> denoted in the reflectance equation as \(\int\) over all incoming directions \(d\omega_i\) within the hemisphere \(\Omega\) . An integral measures the area of a function, which can either be calculated analytically or numerically. As there is no analytical solution to both the render and reflectance equation we'll want to numerically solve the integral discretely. This translates to taking the result of small discrete steps of the reflectance equation over the hemisphere \(\Omega\) and averaging their results over the step size. This is known as the <def>Riemann sum</def> that we can roughly visualize in code as follows:
+</p>
+
+<pre><code>
+int steps = 100;
+float sum = 0.0f;
+vec3 P    = ...;
+vec3 Wo   = ...;
+vec3 N    = ...;
+float dW  = 1.0f / steps;
+for(int i = 0; i &lt; steps; ++i)
+{
+    vec3 Wi = getNextIncomingLightDir(i);
+    sum += Fr(P, Wi, Wo) * L(P, Wi) * dot(N, Wi) * dW;
+}
+</code></pre>
+
+<p>
+  By scaling the steps by <code>dW</code> the sum will equal the total area or volume of the integral function. The <code>dW</code> to scale each discrete step can be thought of as \(d\omega_i\) in the reflectance equation. Mathematically \(d\omega_i\) is the continuous symbol over which we calculate the integral and while it does not directly relate to <code>dW</code> in code (as this is a discrete step of the Riemann sum) it helps to think of it this way. Keep in mind that taking discrete steps will always give us an approximation of the total area of the function. A careful reader will notice we can increase the <em>accuracy</em> of the Riemann Sum by increasing the number of steps.
+  </p>
+
+<p>
+  The reflectance equation sums up the radiance of all incoming light directions \(\omega_i\) over the hemisphere \(\Omega\) scaled by \(f_r\) that hit point \(p\) and returns the sum of reflected light \(L_o\) in the viewer's direction. The incoming radiance can come from <a href="https://learnopengl.com/#!PBR/Lighting" target="_blank">light sources</a> as we're familiar with or from an environment map measuring the radiance of every incoming direction as we'll discuss in the <a href="https://learnopengl.com/#!PBR/IBL/Diffuse-irradiance" target="_blank">IBL</a> tutorials.
+</p>
+
+<p>
+  Now the only unknown left is the \(f_r\) symbol known as the <def>BRDF</def> or <def>bidirectional reflective distribution function</def> that scales or weighs the incoming radiance based on the surface's material properties.
+</p>
+
+
+<h2>BRDF</h2>
+<p>
+  The <def>BRDF</def>, or <def>bidirectional reflective distribution function</def> is a function that takes as input the incoming (light) direction \(\omega_i\), the outgoing (view) direction \(\omega_o\), the surface normal \(n\) and a surface parameter \(a\) that represents the microsurface's roughness. The BRDF approximates how much each individual light ray \(\omega_i\) contributes to the final reflected light of an opaque surface given its material properties. For instance, if the surface has a perfectly smooth surface (~like a mirror) the BRDF function would return 0.0 for all incoming light rays \(\omega_i\) except the one ray that has the same (reflected) angle as the outgoing ray \(\omega_o\) at which the function returns 1.0. </p>
+
+  <p>
+    A BRDF approximates the material's reflective and refractive properties based on the previously discussed microfacet theory. For a BRDF to be physically plausible it has to respect the law of energy conservation i.e. the sum of reflected light should never exceed the amount of incoming light. Technically, Blinn-Phong is considered a BRDF taking the same \(\omega_i\) and \(\omega_o\) as inputs. However, Blinn-Phong is not considered physically based as it doesn't adhere to the energy conservation principle. There are several physically based BRDFs out there to approximate the surface's reaction to light. However, almost all real-time render pipelines use a BRDF known as the <def>Cook-Torrance BRDF</def>.
+  </p>
+
+<p>
+    The Cook-Torrance BRDF contains both a diffuse and specular part:
+</p>
+
+  \[f_r = k_d f_{lambert} +  k_s f_{cook-torrance}\]
+
+<p>
+  Here \(k_d\) is the earlier mentioned ratio of incoming light energy that gets <em>refracted</em> with \(k_s\) being the ratio that gets <em>reflected</em>. The left side of the BRDF states the diffuse part of the equation denoted here as \(f_{lambert}\). This is known as <def>Lambertian diffuse</def> similar to what we used for diffuse shading which is a constant factor denoted as:
+</p>
+
+  \[ f_{lambert} = \frac{c}{\pi}\]
+
+<p>
+	With \(c\) being the albedo or surface color (think of the diffuse surface texture). The divide by pi is there to normalize the diffuse light as the earlier denoted integral that contains the BRDF is scaled by \(\pi\) (we'll get to that in the <a href="https://learnopengl.com/#!PBR/IBL/Diffuse-irradiance" target="_blank">IBL</a> tutorials).
+</p>
+
+  <note>
+    You might wonder how this Lambertian diffuse relates to the diffuse term we've been using before: the surface color multiplied by the dot product between the surface's normal and the light direction. The dot product is still there, but moved out of the BRDF as we find \(n \cdot \omega_i\) at the end of the \(L_o\) integral.
+  </note>
+
+<p>
+  There exist different equations for the diffuse part of the BRDF which tend to look more realistic, but are also more computationally expensive. As concluded by Epic Games however, the Lambertian diffuse is sufficient enough for most real-time rendering purposes.
+</p>
+
+<p>
+  The specular part of the BRDF is a bit more advanced and is described as:
+</p>
+
+ \[
+  f_{cook-torrance} = \frac{DFG}{4(\omega_o \cdot n)(\omega_i \cdot n)}
+  \]
+
+<p>
+  The Cook-Torrance specular BRDF consists of three functions and a normalization factor in the denominator. Each of the D, F and G symbols represent a type of function that approximates a specific part of the surface's reflective properties. These are defined as the normal <strong>D</strong>istribution function, the <strong>F</strong>resnel equation and the <strong>G</strong>eometry function:
+</p>
+
+<ul>
+  <li><strong>Normal distribution function</strong>: approximates the amount the surface's microfacets are aligned to the halfway vector influenced by the roughness of the surface; this is the primary function approximating the microfacets.</li>
+    <li><strong>Geometry function</strong>: describes the self-shadowing property of the microfacets. When a surface is relatively rough the surface's microfacets can overshadow other microfacets thereby reducing the light the surface reflects.</li>
+  <li><strong>Fresnel equation</strong>: The Fresnel equation describes the ratio of surface reflection at different surface angles.</li>
+</ul>
+
+<p>
+  Each of these functions is an approximation of their physics equivalents and you'll find more than one version of each one that aims to approximate the underlying physics; some more realistic, others more efficient. It is perfectly allowed to pick whatever approximated version of these functions you want to use. Brian Karis from Epic Games did a good deal of research on the multiple types of approximations <a href="http://graphicrants.blogspot.nl/2013/08/specular-brdf-reference.html" target="_blank">here</a>. We're going to pick the same functions used by Epic Game's Unreal Engine 4 which are the Trowbridge-Reitz GGX for D, the Fresnel-Schlick approximation for F and the Smith's Schlick-GGX for G.
+</p>
+
+<h3>Normal distribution function</h3>
+<p>
+  The <def>normal distribution function</def> \(D\) statistically approximates the relative surface area of microfacets exactly aligned to the (halfway) vector \(h\). There are a multitude of NDFs defined that statistically approximate the general alignment of the microfacets given some roughness parameter and the one we'll be using is known as the Trowbridge-Reitz GGX:
+</p>
+
+  \[
+  	NDF_{GGX TR}(n, h, \alpha) = \frac{\alpha^2}{\pi((n \cdot h)^2 (\alpha^2 - 1) + 1)^2}
+  \]
+
+<p>
+  Here \(h\) is the halfway vector to measure against the surface's microfacets, with \(a\) being a measure of the surface's roughness. If we take \(h\) as the halfway vector between the surface normal and light direction over varying roughness parameters we get the following visual result:
+</p>
+
+  <img src="/img/pbr/ndf.png" alt="Visualized NDF in OpenGL PBR">
+
+<p>
+   When the roughness is low (thus the surface is smooth) a highly concentrated number of microfacets are aligned to halfway vectors over a small radius. Due to this high concentration the NDF displays a very bright spot. On a rough surface however, where the microfacets are aligned in much more random directions, you'll find a much larger number of halfway vectors \(h\) somewhat aligned to the microfacets, but less concentrated giving us the more grayish results.
+</p>
+
+<p>
+  In GLSL code the Trowbridge-Reitz GGX normal distribution function would look a bit like this:
+</p>
+
+<pre><code>
+float DistributionGGX(vec3 N, vec3 H, float a)
+{
+    float a2     = a*a;
+    float NdotH  = max(dot(N, H), 0.0);
+    float NdotH2 = NdotH*NdotH;
+
+    float nom    = a2;
+    float denom  = (NdotH2 * (a2 - 1.0) + 1.0);
+    denom        = PI * denom * denom;
+
+    return nom / denom;
+}
+</code></pre>
+
+
+<h3>Geometry function</h3>
+<p>
+    The geometry function statistically approximates the relative surface area where its micro surface-details overshadow each other causing light rays to be occluded.
+</p>
+
+    <img src="/img/pbr/geometry_shadowing.png" class="clean" alt="Light being either shadowed or obstructed due to microfacet model."/>
+
+<p>
+  Similar to the NDF, the Geometry function takes a material's roughness parameter as input with rougher surfaces having a higher probability of overshadowing microfacets. The geometry function we will use is a combination of the GGX and Schlick-Beckmann approximation known as Schlick-GGX:
+</p>
+
+    \[
+    	G_{SchlickGGX}(n, v, k)
+       		 =
+   		\frac{n \cdot v}
+    	{(n \cdot v)(1 - k) + k }
+    \]
+
+<p>
+  Here \(k\) is a remapping of \(\alpha\) based on whether we're using the geometry function for either direct lighting or IBL lighting:
+</p>
+
+\[
+    k_{direct} = \frac{(\alpha + 1)^2}{8}
+\]
+
+\[
+    k_{IBL} = \frac{\alpha^2}{2}
+\]
+
+<p>
+  Note that the value of \(\alpha\) might differ based on how your engine translates roughness to \(\alpha\). In the following tutorials we'll extensively discuss how and where this remapping becomes relevant.
+    </p>
+
+<p>
+  To effectively approximate the geometry we need to take account of both the view direction (geometry obstruction) and the light direction vector (geometry shadowing). We can take both into account using <def>Smith's method</def>:
+</p>
+
+\[
+  	G(n, v, l, k) = G_{sub}(n, v, k) G_{sub}(n, l, k)
+\]
+
+<p>
+  Using Smith's method with Schlick-GGX as \(G_{sub}\) gives the following visual appearance over varying roughness <code>R</code>:
+</p>
+
+
+    <img src="/img/pbr/geometry.png" alt="Visualized Geometry function in OpenGL PBR"/>
+
+<p>
+  The geometry function is a multiplier between [0.0, 1.0] with white or 1.0 measuring no microfacet shadowing and black or 0.0 complete microfacet shadowing.
+</p>
+
+<p>
+  In GLSL the geometry function translates to the following code:
+</p>
+
+<pre><code>
+float GeometrySchlickGGX(float NdotV, float k)
+{
+    float nom   = NdotV;
+    float denom = NdotV * (1.0 - k) + k;
+
+    return nom / denom;
+}
+
+float GeometrySmith(vec3 N, vec3 V, vec3 L, float k)
+{
+    float NdotV = max(dot(N, V), 0.0);
+    float NdotL = max(dot(N, L), 0.0);
+    float ggx1 = GeometrySchlickGGX(NdotV, k);
+    float ggx2 = GeometrySchlickGGX(NdotL, k);
+
+    return ggx1 * ggx2;
+}
+</code></pre>
+
+
+<h3>Fresnel equation</h3>
+<p>
+	The Fresnel equation (pronounced as Freh-nel) describes the ratio of light that gets reflected over the light that gets refracted, which varies over the angle we're looking at a surface. The moment light hits a surface, based on the surface to view angle the Fresnel equation tells us the  percentage of light that gets reflected. From this ratio of reflection and the energy conservation principle we can directly obtain the refracted portion of light from its remaining energy.
+    </p>
+
+ <p>
+   Every surface or material has a level of <def>base reflectivity</def> when looking straight at its surface, but when looking at the surface from an angle <a href="http://filmicworlds.com/blog/everything-has-fresnel/" target="_blank">all</a> reflections become more apparent compared to the surface's base reflectivity. You can check this for yourself by looking at your presumably wooden/metallic desk which has a certain level of base reflectivity from a perpendicular view angle, but by looking at your desk from an almost 90 degree angle you'll see the reflections become much more apparent. All surfaces theoretically fully reflect light if seen from perfect 90-degree angles. This phenomenon is known as <def>Fresnel</def> and is described by the Fresnel equation.
+</p>
+
+<p>
+  The Fresnel equation is a rather complex equation, but luckily the Fresnel equation can be approximated using the <def>Fresnel-Schlick</def> approximation:
+</p>
+
+\[
+	F_{Schlick}(h, v, F_0) =
+    F_0 + (1 - F_0) ( 1 - (h \cdot v))^5
+\]
+
+<p>
+  \(F_0\) represents the base reflectivity of the surface, which we calculate using something called the <em>indices of refraction</em> or IOR and as you can see on a sphere surface, the more we look towards the surface's grazing angles (with the halfway-view angle reaching 90 degrees) the stronger the Fresnel and thus the reflections:
+</p>
+
+    <img src="/img/pbr/fresnel.png" alt="Visualized Fresnel equation on a sphere."/>
+
+<p>
+    There are a few subtleties involved with the Fresnel equation. One is that the Fresnel-Schlick approximation is only really defined for <def>dielectric</def> or non-metal surfaces. For <def>conductor</def> surfaces (metals) calculating the base reflectivity using their indices of refraction doesn't properly hold and we need to use a different Fresnel equation for conductors altogether. As this is inconvenient we further approximate by pre-computing the surface's response at <def>normal incidence</def> (\(F_0\)) (at a 0 degree angle as if looking directly onto a surface) and interpolate this value based on the view angle as per the Fresnel-Schlick approximation such that we can use the same equation for both metals and non-metals.
+</p>
+
+<p>
+  The surface's response at normal incidence or the base reflectivity can be found in large databases like <a href="http://refractiveindex.info/" target="_blank">these</a> with some of the more common values listed below as taken from Naty Hoffman's course notes:
+</p>
+
+<table>
+  <tr>
+  	<th>Material</th>
+  	<th>\(F_0\) (Linear)</th>
+  	<th>\(F_0\) (sRGB)</th>
+  	<th>Color</th>
+  </tr>
+  <tr>
+    <td>Water</td>
+    <td><code>(0.02, 0.02, 0.02)</code></td>
+    <td><code>&nbsp;(0.15, 0.15, 0.15)</code>&nbsp;&nbsp;</td>
+ 	<td style="background-color: #262626"></td>
+  </tr>
+  <tr>
+    <td>Plastic / Glass (Low)</td>
+    <td><code>(0.03, 0.03, 0.03)</code></td>
+    <td><code>(0.21, 0.21, 0.21)</code></td>
+ 	<td style="background-color: #363636"></td>
+  </tr>
+  <tr>
+    <td>Plastic High</td>
+    <td><code>(0.05, 0.05, 0.05)</code></td>
+    <td><code>(0.24, 0.24, 0.24)</code></td>
+ 	<td style="background-color: #3D3D3D"></td>
+  </tr>
+  <tr>
+    <td>Glass (high) / Ruby</td>
+    <td><code>(0.08, 0.08, 0.08)</code></td>
+    <td><code>(0.31, 0.31, 0.31)</code></td>
+ 	<td style="background-color: #4F4F4F"></td>
+  </tr>
+  <tr>
+    <td>Diamond</td>
+    <td><code>(0.17, 0.17, 0.17)</code></td>
+    <td><code>(0.45, 0.45, 0.45)</code></td>
+ 	<td style="background-color: #737373"></td>
+  </tr>
+  <tr>
+    <td>Iron</td>
+    <td><code>(0.56, 0.57, 0.58)</code></td>
+    <td><code>(0.77, 0.78, 0.78)</code></td>
+ 	<td style="background-color: #C5C8C8"></td>
+  </tr>
+  <tr>
+    <td>Copper</td>
+    <td><code>(0.95, 0.64, 0.54)</code></td>
+    <td><code>(0.98, 0.82, 0.76)</code></td>
+ 	<td style="background-color: #FBD2C3"></td>
+  </tr>
+  <tr>
+    <td>Gold</td>
+    <td><code>(1.00, 0.71, 0.29)</code></td>
+    <td><code>(1.00, 0.86, 0.57)</code></td>
+ 	<td style="background-color: #FFDC92"></td>
+  </tr>
+  <tr>
+    <td>Aluminium</td>
+    <td><code>(0.91, 0.92, 0.92)</code></td>
+    <td><code>(0.96, 0.96, 0.97)</code></td>
+ 	<td style="background-color: #F6F6F8"></td>
+  </tr>
+  <tr>
+    <td>Silver</td>
+    <td><code>(0.95, 0.93, 0.88)</code></td>
+    <td><code>(0.98, 0.97, 0.95)</code></td>
+ 	<td style="background-color: #FBF8F3"></td>
+  </tr>
+
+</table>
+
+<p>
+  What is interesting to observe here is that for all dielectric surfaces the base reflectivity never gets higher than 0.17 which is the exception rather than the rule, while for conductors the base reflectivity starts much higher and (mostly) varies between 0.5 and 1.0. Furthermore, for conductors or metallic surfaces the base reflectivity is tinted which is why \(F_0\) is presented as an RGB triplet (reflectivity at normal incidence can vary per wavelength); this is something we <strong>only</strong> see at metallic surfaces.
+</p>
+
+<p>
+  These specific attributes of metallic surfaces compared to dielectric surfaces gave rise to something called the <def>metallic workflow</def> where we author surface materials with an extra parameter known as <def>metalness</def> that describes whether a surface is either a metallic or a non-metallic surface.
+</p>
+
+<note>
+  Theoretically the metalness of a surface is binary: it's either a metal or it isn't; it can't be both. However, most render pipelines allow configuring the metalness of a surface linearly between 0.0 and 1.0. This is mostly because of the lack of material texture precision to describe for instance a surface having small dust/sand-like particles/scratches over a metallic surface. By balancing the metalness value around these small non-metallic like particles/scratches we get visually pleasable results.
+</note>
+
+<p>
+  By pre-computing \(F_0\) for both dielectrics and conductors we can use the same Fresnel-Schlick approximation for both types of surfaces, but we do have to tint the base reflectivity if we have a metallic surface. We generally accomplish this as follows:
+</p>
+
+<pre><code>
+vec3 F0 = vec3(0.04);
+F0      = mix(F0, surfaceColor.rgb, metalness);
+</code></pre>
+
+<p>
+  We define a base reflectivity that is approximated for most dielectric surfaces. This is yet another approximation as \(F_0\) is averaged around most common dielectrics. A base reflectivity of 0.04 holds for most dielectrics and produces physically plausible results without having to author an additional surface parameter. Then, based on how metallic a surface is we either take the dielectric base reflectivity or take \(F_0\) authored as the surface color. Because metallic surfaces absorb all refracted light they have no diffuse reflections and we can directly use the surface color texture as their base reflectivity.
+</p>
+
+ <p>
+  In code the Fresnel Schlick approximation translates to:
+</p>
+
+<pre><code>
+vec3 fresnelSchlick(float cosTheta, vec3 F0)
+{
+    return F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
+}
+</code></pre>
+
+<p>
+  With <code>cosTheta</code> being the dot product result between the surface's normal \(n\) and the view direction \(v\).
+</p>
+
+
+<h3>Cook-Torrance reflectance equation</h3>
+<p>
+  With every component of the Cook-Torrance BRDF described we can include the physically based BRDF into the now final reflectance equation:
+</p>
+
+ \[
+    L_o(p,\omega_o) = \int\limits_{\Omega}
+    	(k_d\frac{c}{\pi} + k_s\frac{DFG}{4(\omega_o \cdot n)(\omega_i \cdot n)})
+    	L_i(p,\omega_i) n \cdot \omega_i  d\omega_i
+ \]
+
+<p>
+  This equation is however not fully mathematically correct. You may remember that the Fresnel term \(F\) represents the ratio of light that gets <em>reflected</em> on a surface. This is effectively our ratio \(k_s\), meaning the specular part of the reflectance equation implicitly contains the reflectance ratio \(k_s\). Given this, our final final reflectance equation becomes:
+</p>
+
+ \[
+    L_o(p,\omega_o) = \int\limits_{\Omega}
+    	(k_d\frac{c}{\pi} + \frac{DFG}{4(\omega_o \cdot n)(\omega_i \cdot n)})
+    	L_i(p,\omega_i) n \cdot \omega_i  d\omega_i
+ \]
+
+<p>
+  This equation now completely describes a physically based render model that is generally recognized as what we commonly understand as physically based rendering or PBR. Don't worry if you didn't yet completely understand how we'll need to fit all the discussed mathematics together in code. In the next tutorials, we'll explore how to utilize the reflectance equation to get much more physically plausible results in our rendered lighting and all the bits and pieces should slowly start to fit together.
+</p>
+
+<h2>Authoring PBR materials</h2>
+<p>
+  With knowledge of the underlying mathematical model of PBR we'll finalize the discussion by describing how artists generally author the physical properties of a surface that we can directly feed into the PBR equations. Each of the surface parameters we need for a PBR pipeline can be defined or modeled by textures. Using textures gives us per-fragment control over how each specific surface point should react to light: whether that point is metallic, rough or smooth or how the surface responds to different wavelengths of light.
+</p>
+
+<p>
+  Below you'll see a list of textures you'll frequently find in a PBR pipeline together with its visual output if supplied to a PBR renderer:
+</p>
+
+    <img src="/img/pbr/textures.png" class="clean" alt="Example of how artists author a PBR material with its relevant textures (OpenGL)."/>
+
+<p>
+  <strong>Albedo</strong>: the <def>albedo</def> texture specifies for each texel the color of the surface, or the base reflectivity if that texel is metallic. This is largely similar to what we've been using before as a diffuse texture, but all lighting information is extracted from the texture. Diffuse textures often have slight shadows or darkened crevices inside the image which is something you don't want in an albedo texture; it should only contain the color (or refracted absorption coefficients) of the surface.
+</p>
+
+<p>
+  <strong>Normal</strong>: the normal map texture is exactly as we've been using before in the <a href="https://learnopengl.com/#!Advanced-Lighting/Normal-Mapping" target="_blank">normal mapping</a> tutorial. The normal map allows us to specify per fragment a unique normal to give the illusion that a surface is <em>bumpier</em> than its flat counterpart.
+</p>
+
+<p>
+  <strong>Metallic</strong>: the metallic map specifies per texel whether a texel is either metallic or it isn't. Based on how the PBR engine is set up, artists can author metalness as either grayscale values or as binary black or white.
+</p>
+
+<p>
+  <strong>Roughness</strong>: the roughness map specifies how rough a surface is on a per texel basis. The sampled roughness value of the roughness influences the statistical microfacet orientations of the surface. A rougher surface gets wider and blurrier reflections, while a smooth surface gets focused and clear reflections. Some PBR engines expect a <def>smoothness</def> map instead of a roughness map which some artists find more intuitive, but these values get translated (1.0 - smoothness) to roughness the moment they're sampled.
+</p>
+
+<p>
+  <strong>AO</strong>: the <def>ambient occlusion</def> or <def>AO</def> map specifies an extra shadowing factor of the surface and potentially surrounding geometry. If we have a brick surface for instance, the albedo texture should have no shadowing information inside the brick's crevices. The AO map however does specify these darkened edges as it's more difficult for light to escape. Taking ambient occlusion in account at the end of the lighting stage can significantly boost the visual quality of your scene. The ambient occlusion map of a mesh/surface is either manually generated or pre-calculated in 3D modeling programs.
+</p>
+
+<p>
+  Artists set and tweak these physically based input values on a per-texel basis and can base their texture values on the physical surface properties of real-world materials. This is one of the biggest advantages of a PBR render pipeline as these physical properties of a surface remain the same, regardless of environment or lighting setup making life easier for artists to get physically plausible results. Surfaces authored in a PBR pipeline can easily be shared among different PBR render engines, will look correct regardless of the environment they're in and as a result look much more natural.
+</p>
+
+<h2>Further reading</h2>
+<ul>
+    <li><a href="http://blog.selfshadow.com/publications/s2013-shading-course/hoffman/s2013_pbs_physics_math_notes.pdf" target="_blank">Background: Physics and Math of Shading by Naty Hoffmann</a>: there is too much theory to fully discuss in a single article so the theory here barely scratches the surface; if you want to know more about the physics of light and how it relates to the theory of PBR <strong>this</strong> is the resource you want to read.</li>
+  <li><a href="http://blog.selfshadow.com/publications/s2013-shading-course/karis/s2013_pbs_epic_notes_v2.pdf" target="_blank">Real shading in Unreal Engine 4</a>: discusses the PBR model adopted by Epic Games in their 4th Unreal Engine installment. The PBR system we'll focus on in these tutorials is based on this model of PBR.</li>
+  <li><a href="https://www.shadertoy.com/view/4sSfzK" target="_blank">[SH17C] Physically Based Shading, by knarkowicz</a>: great showcase of all individual PBR elements in an interactive ShaderToy demo.</li>
+  <li><a href="https://www.marmoset.co/toolbag/learn/pbr-theory" target="_blank">Marmoset: PBR Theory</a>: an introduction to PBR mostly meant for artists, but nevertheless a good read.</li>
+	<li><a href="http://www.codinglabs.net/article_physically_based_rendering.aspx" target="_blank">Coding Labs: Physically based rendering</a>: an introduction to the render equation and how it relates to PBR. </li>
+  <li><a href="http://www.codinglabs.net/article_physically_based_rendering_cook_torrance.aspx" target="_blank">Coding Labs: Physically Based Rendering - Cook–Torrance</a>: an introduction to the Cook-Torrance BRDF. </li>
+  <li><a href="http://blog.wolfire.com/2015/10/Physically-based-rendering" target="_blank">Wolfire Games - Physically based rendering</a>: an introduction to PBR by Lukas Orsvärn.</li>
+  <li><a href="https://www.shadertoy.com/view/4sSfzK" target="_blank">[SH17C] Physically Based Shading</a>: a great interactive shadertoy example (warning: might take a while to load) by Krzysztof Narkowi showcasing light-material interaction in a PBR fashion.</li>
+</ul>
+</html>

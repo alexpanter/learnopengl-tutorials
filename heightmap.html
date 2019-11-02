@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+<head>
+
+</head>
+
+
+<body>
+<h1>Height Map</h1>
+
+<h2>Introduction</h2>
+
+
+<p>
+  We have looked at a variety of graphics techniques, including lighting models,
+  shadow algorithms, model loading, etc. This tutorial will focus on putting it all
+  together to create realistic 3d terrains.
+  Several steps are required, however, to model a 3d terrain, the first of which is
+  the definition of a height map. Height maps are used everywhere and are a really
+  common solution for modeling landscapes in 3d applications. The concept is very
+  simple – to model a landscape we represent it as an array of height values, and
+  use a coordinate to lookup a height value.
+</p>
+
+
+If we model our array in 1 dimension, which is most typical, we use
+<pre><code>
+class HeightValue
+{
+public:
+    Glfloat Height;
+    enum TerrainType Terrain;
+};
+
+const int HEIGHT_MAP_SIZE = 32;
+HeightValue heightMap[HEIGHT_MAP_SIZE];
+</code></pre>
+
+
+<p>
+  Here we specify the data type for each data point in the height map.
+  We could easily just define the height map as an array of floats, but by using
+  a class as here we can use any set of values for each height point, such
+  assigning the terrain type (water, grass, dirt, rock, etc.), biome information,
+  information on how to do texture blending, data for generating foliage, or even
+  create functions for extracting values based on external parameters.
+  This will prove very useful later on when we wish to populate our height map with
+  landscape textures, trees, foliage, animals, etc.
+  Now we just need to figure out how to pass this information on to OpenGL in a
+  useful way. Since OpenGL is a rasterization pipeline based on triangles, we need to
+  convert our height field into a triangle mesh such that we can render it, not as
+  individual data points but as a contiguous segment of land.
+  Thus, we need a method for constructing triangles from the height map as seen below:
+</p>
+
+
+
+
+
+
+<!--\[ L_o(p,\omega_o) = \int\limits_{\Omega} f_r(p,\omega_i,\omega_o) L_i(p,\omega_i) n \cdot \omega_i d\omega_i \]-->
+
+<body>
+  <!--script type="text/javascript" src="mathjax.js"></script-->
+  <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+<script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+</html>
