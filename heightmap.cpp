@@ -334,19 +334,19 @@ int main()
 
     std::vector<glm::vec3> vertices;
     vertices.reserve(N * M);
-    for (int y = 0; y < N; y++) {
-        for (int x = 0; x < M; x++) {
+    for (int y = 0; y < M; y++) {
+        for (int x = 0; x < N; x++) {
             GLuint index = y*N + x;
             vertices.push_back(glm::vec3(x, y, heightMap[index].Height));
         }
     }
-    GLuint T = (N-1) * (M-1) * 2;
+    GLuint T = (M-1) * (N-1) * 2;
     GLuint I = T * 3;
 
     std::vector<GLuint> indices;
     indices.reserve(I);
-    for (int y = 0; y < N-1; y++) {
-        for (int x = 0; x < M-1; x++) {
+    for (int y = 0; y < M-1; y++) {
+        for (int x = 0; x < N-1; x++) {
             // upper-left triangle
             GLuint topLeft = y*N + x;
             indices.push_back(topLeft);

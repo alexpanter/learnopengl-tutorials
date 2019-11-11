@@ -84,7 +84,7 @@
     <h1>Terrain Rendering Series</h1>
 
     <p>
-      Welcome to the Terrain Rendering Series, a series in which we will explore
+      Welcome to the Terrain Rendering Series, a series in which we explore common
       techniques for rendering terrains with OpenGL. As this is the first article
       in the series, we will start with the most basic stuff, and later on explore
       more advanced topics.
@@ -92,10 +92,12 @@
 
     <p>
       This series is not intended for the beginning OpenGL programmer, as reading it
-      requires you to be familiar with a lot of concepts. So, if your OpenGL skills
-      are a bit rusty, you are welcome to read some of the basic tutorials first, and
-      then come back to this. This tutorials assumes you to have knowledge of (and
-      will not introduce!) following OpenGL concepts:<br>
+      requires you to be familiar with several concepts.
+      Fortunately, all these concepts are very well explained in earlier tutorials,
+      so if your OpenGL is a bit rusty, you may want to take a quick look at them
+      and then come back here.
+      We build upon the following OpenGL concepts and will not provide any
+      introduction (otherwise this article would be painfully long to read):<br>
       <a href="https://learnopengl.com/Getting-started/Shaders">Shaders</a>,
       <a href="https://learnopengl.com/Getting-started/Transformations">Transformations</a>
       <a href="https://learnopengl.com/Getting-started/Camera">Camera</a>,
@@ -110,25 +112,38 @@
     <p>
       Although not a strict requirement, it is recommended that you are familiar with
       indexed drawing (using <code>glDrawElements</code>). The techniques taught in
-      this tutorial series can be extended with deferred rendering for larger artistical
-      freedom, but that is a somewhat relaxed requirement. Implementing deferred
-      rendering is not a focus of this tutorial series.
+      this tutorial series can also extended with deferred rendering for greater
+      artistical freedom and control, but that is a somewhat relaxed requirement:
+      Implementing deferred rendering, though recommended, will not be a part of this
+      tutorial series.
     </p>
 
     <p>
       If you follow the code snippets in this tutorial, it is <strong>required</strong>
       that you set your compiler version to at least C++11. And C++17 is recommended.
+      For Unix/Linux/FreeBSD/MacOS operating systems, the compiler flag <code>
+        -std=c++17</code> will usually accomplish this, though it depends on your
+      choice of compiler. For CMake, insert something like the following in your
+      <code>CMakeLists.txt</code> file:<br><br>
+      <code>target_compile_features(<project_name> PUBLIC cxx_std_17)</code><br><br>
+
+      For Windows, you are probably using Visual Studio. The you may find help here:
+      <a href="https://docs.microsoft.com/en-us/cpp/build/working-with-project-properties?view=vs-2019">Set compiler and build properties</a>,
+
+      and here:
+      <a href="https://docs.microsoft.com/en-us/cpp/build/reference/std-specify-language-standard-version?view=vs-2019">Specify Language Standard Version</a>.
     </p>
 
-    <h2>Height Map</h2>
+
+    <h2>The Height Map</h2>
 
     <p>
-      The most basic technique for rendering 3d terrain is without doubt using what
-      is called a <strong>height map</strong> (sometimes referred to as a height field).
+      The most common technique for rendering 3D terrain is by using what is called
+      a <strong>height map</strong> (sometimes referred to as a height field).
       In this technique we define a grid of points, where each point is attributed a
-      height value. If we position this grid horizontally in our 3d world, at height h,
-      and calculate an offset for each grid point by using its height value, we can
-      create 3d terrain. An example of this technique in use can be seen below:
+      height value. If we position this grid horizontally in our 3d world, and
+      create a vertex position for each grid point by using its height value, we can
+      render a 3D terrain. An example of this technique in use can be seen below:
     </p>
 
     <div class="img-row">
@@ -142,12 +157,87 @@
 
     <p>
       In the images above we actually have 2 height maps, one for the terrain and one
-      for the water surface. The water surface is rendered using a simple wave generator,
-      which we will explore in a later tutorial. To the right, wireframed drawing mode is
-      temporarily enabled to show the underlying terrain mesh.
+      for the water surface. The terrain is generated using a seeded noise function,
+      and the water surface is rendered with sine waves layered on top of each other.
+      Both concepts will be explored in later tutorials.<br>
+      The image to the right shows the same scene rendered in fireframed mode.
     </p>
 
-    <h2>Programming a Height Map</h2>
+
+    <h2>Explaining the Concept in Math</h2>
+
+    <p>
+      Math is a wonderful tool for explaining topics in short and concise ways, and
+      we make no exception here. No advanced math is required to follow this tutorial,
+      and I do my best to explain stuff along the way.
+    </p>
+
+    <p>
+      We define our height map as a set of grid points, uniformly distributed in a
+      discrete integer grid. This sounds way worse than it is - it simply means that
+      all grid points have the same distance to each other, and that each grid point
+      has coordinates <i>(x, y)</i>, where both <i>x</i> and <i>y</i> are integers.
+    </p>
+
+    <p>
+      Say that we want a height map of size <i>M * N</i>? (<i>M</i> and <i>N</i>
+      do not need to be equal). So we make a drawing a bit like the
+      following:
+    </p>
+
+    <div class="img-row">
+      <img src="img/grid-points-axes.png" alt="Snow" style="width:30%">
+    </div><br>
+
+    The number of grid points is obviously <i>M * N</i>, but that information in
+    itself isn't very useful. Remember that OpenGL is a specification for hardware
+    rasterization, and that we have certain restrictions? One of these restrictions
+    is that the <u>only</u> way to render a surface with OpenGL is by providing a set
+    of triangles in a vertex buffer object (ie. an array).
+
+    <p>
+      Thus, our first task is to convert the image above into a triangle mesh.
+      This is illustrated below:
+    </p>
+
+    <img src="img/terrain-mesh-triangles.png" alt="Terrain mesh triangulation"
+         style="width: 450px; border: none;">
+
+    <p>
+      So let's specify some metrics: Let <i>T</i> be the number of triangles in the
+      triangle mesh, and let <i>I</i> be the number of indices to send to an OpenGL
+      element buffer object (EBO) (remember indexed rendering?). We then compute
+      these variables:
+    </p>
+
+    \[T = (M – 1) \cdot (N – 1) \cdot 2\]
+    \[I = T \cdot 3\]
+
+    <p>
+      The programmatic recipe will then be as following:
+      <ol>
+        <li>Iterate through each square which contains two triangles
+          (e.g. the square formed by the upper-left corner, and its 3 surrounding
+          grid points). We make this a double for-loop with loops running up to
+          <code>M-1</code> and <code>N-1</code>.
+        </li>
+        <li>For each loop iteration, calculate the coordinates for the 4 grid
+          points that form the current square. Then, insert 3 grid points for the
+          upper-left triangle, and for the lower-right triangle, into a list.</li>
+        <li>After the loop, buffer this list into an OpenGL EBO, and also buffer
+        the grid points into an OpenGL VBO.</li>
+        <li>Done.</li>
+      </ol>
+    </p>
+
+    <p>
+      By using an EBO, we can minimize the GPU memory usage, which is useful when
+      we want to have really big height maps.
+    </p>
+
+
+
+    <h2>Data Structure for a Height Map</h2>
 
     <p>
       To represent a height map in code, this tutorial uses a flat 1-dimensional array
@@ -164,8 +254,8 @@
   class HeightMapEntry
   {
   public:
-  Glfloat Height;
-  TerrainType Terrain;
+      Glfloat Height;
+      TerrainType Terrain;
   };
 
   const int N = 8;
@@ -174,76 +264,45 @@
   HeightMapEntry heightMap[SIZE];
     </code></pre>
 
-
     <p>
-      Here we specify the data type for each data point in the height map as a class
-      which contains two values for each height point: A height value
-      (<code>GLfloat Height</code>), and a terrain type
-      (<code>TerrainType Terrain</code>).
+      Here we specify the data type for each grid point in the height map.
+      By providing more information than simply a height value, we introduce a lot
+      of flexibility in our program.
     </p>
 
     <p>
-      We could easily just define the height map as an array of floats, but by using
-      a custom object as we do here, we can attach any set of values to each grid point,
-      such assigning the terrain type (water, grass, dirt, rock, etc.), biome information,
-      information on how to do texture blending, data for generating foliage, or even
-      create functions for extracting values based on external parameters.
-      This will prove very useful later on, should we wish to populate our game world
-      with landscape textures, trees, foliage, animals, etc.
+      We could also define the height map as an array of floats, but by using a
+      custom object as we do here, we can associate to our height map any set of
+      values that we might want. Here is some inspiration for your curiosity:
     </p>
+
+    <ul>
+      <li>We could attach different terrain types throughout our height map,
+        and blend different terrain textures together based on this parameter.</li>
+      <li>Imagine having a function which analyses the height map and creates
+        biome information, such as where to place trees.</li>
+      <li>If we decide to model a landscape which contains a river, we could use the
+        height map to determine the direction of the water's movement through the
+        river, based on its connection to the surrounding ocean.</li>
+      <li>If we create a 3D game with units moving around, we can use the height
+        map to calculate the movement speed of each unit, taking into account the
+        slope of the surrounding terrain (by comparing different height values).</li>
+    </ul>
+
+    <h2>Getting Technical</h2>
 
     <p>
-      Now we just need to figure out how to pass this information on to OpenGL in a
-      useful way. Since OpenGL is a rasterization pipeline based on triangles, we need
-      to convert our height field into a triangle mesh such that we can render it:
-      Not as individual data points but as a contiguous segment of land.
-      Thus, we need a method for constructing triangles from the height map as seen below:
+      Now that we have the data structure for a height map, we need to create some
+      triangles and send them to the GPU. By using indexed rendering, we save a lot
+      of GPU memory. Following the programmatic recipe explained in the math
+      section, the code for generating the triangle indices looks as following:
     </p>
 
-    <img src="img/terrain-mesh-triangles.png" alt="Terrain mesh triangulation"
-         style="width: 85%; border: none;">
-
-    <p>
-      To the left we see the abstract representation of our height field, where each
-      point is a single height point. What we wish to obtain is the image on the right,
-      where a triangle grid is formed as to connect each grid point into a mesh.
-      We say about the grid that it is a <i>“discrete uniform grid”</i>, meaning that the
-      distance between each grid point is the same, and where each grid point (x,y) is
-      an integer coordinate set.
-    </p>
-
-    <p>
-      There is a bit of math involved in this process, though it is not too complicated.
-      First, we need to create a data structure for containing the triangles.
-      As demonstrated in earlier tutorials, indexed rendering can be used for 3d objects
-      where many triangles share corners, such as to minimize GPU memory usage.
-      It’s quite simple to tell OpenGL to read vertices from a buffer 3 at a time and
-      connect them together to form a triangle.
-      So we need to create an array and then add the indices for each triangle corner,
-      in a sequential order.
-    </p>
-
-    <p>
-      Given a height field of size <i>N * M</i> (where <i>N</i> can be the same as
-      <i>M</i>), the number of triangles <i>T</i> in the mesh is computed as
-    </p>
-
-    \[T = (N – 1) \cdot (M – 1) \cdot 2\]
-
-    <p>
-      And the number of indices <i>I</i> is
-    </p>
-
-    \[I = T \cdot 3\]
-
-    <p>
-      The code for generating the triangle indices looks, then, as following:
-    </p>
     <pre class="hljs"><code>
   std::vector&lt;glm::vec3&gt; vertices;
   vertices.reserve(N * M);
-  for (int y = 0; y < N; y++) {
-      for (int x = 0; x < M; x++) {
+  for (int y = 0; y < M; y++) {
+      for (int x = 0; x < N; x++) {
           GLuint index = y*N + x;
           vertices.push_back(glm::vec3(x, y, heightMap[index].Height));
       }
@@ -253,8 +312,8 @@
 
   std::vector&lt;GLuint&gt; indices;
   indices.reserve(I);
-  for (int y = 0; y < N-1; y++) {
-      for (int x = 0; x < M-1; x++) {
+  for (int y = 0; y < M-1; y++) {
+      for (int x = 0; x < N-1; x++) {
           // upper-left triangle
           GLuint topLeft = y*N + x;
           indices.push_back(topLeft);
@@ -405,8 +464,8 @@
     </p>
 
     <p>
-      In the next tutorial we will focus on making the landscape look a bit more like
-      a landscape.
+      In the next tutorial we will focus on making the landscape look more like a real
+      landscape.
     </p>
 
 
