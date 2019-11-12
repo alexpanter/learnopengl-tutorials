@@ -125,7 +125,8 @@
         -std=c++17</code> will usually accomplish this, though it depends on your
       choice of compiler. For CMake, insert something like the following in your
       <code>CMakeLists.txt</code> file:<br><br>
-      <code>target_compile_features(<project_name> PUBLIC cxx_std_17)</code><br><br>
+      <code>target_compile_features(&lt;project_name&gt; PUBLIC cxx_std_17)</code>
+      <br><br>
 
       For Windows, you are probably using Visual Studio. The you may find help here:
       <a href="https://docs.microsoft.com/en-us/cpp/build/working-with-project-properties?view=vs-2019">Set compiler and build properties</a>,
