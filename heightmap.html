@@ -300,14 +300,14 @@
 
     <pre class="hljs"><code>
   std::vector&lt;glm::vec3&gt; vertices;
-  vertices.reserve(N * M);
+  vertices.reserve(M * N);
   for (int y = 0; y < M; y++) {
       for (int x = 0; x < N; x++) {
           GLuint index = y*N + x;
           vertices.push_back(glm::vec3(x, y, heightMap[index].Height));
       }
   }
-  GLuint T = (N-1) * (M-1) * 2;
+  GLuint T = (M-1) * (N-1) * 2;
   GLuint I = T * 3;
 
   std::vector&lt;GLuint&gt; indices;
@@ -328,15 +328,13 @@
                           </code></pre>
 
     <p>
-      Here we create a buffer (<code>std::vector&lt;glm::vec3&gt;</code>) of 3d
-      points by using the height values of our height map array.
-      By using a nested for-loop, we can simply pass the values for <i>x</i>
-      and <i>y</i> as is.
+      Here we create a buffer (<code>std::vector&lt;glm::vec3&gt;</code>) of 3D
+      coordinates for our vertex positions, and an index buffer
+      (<code>std::vector&lt;GLuint&gt;</code>) for indexing into the vertex buffer.
     </p>
 
     <p>
-      After this, we create a buffer for the indices and iterate in a similar
-      fashion. We now have the triangle indices, in correct order, for our mesh.
+      We now have all the data we need for rendering our height map.
       The only thing remaining is to set the attribute pointers, and send them
       to the GPU:
     </p>
@@ -349,7 +347,7 @@
 
   glBindVertexArray(VAO);
   glBindBuffer(GL_ARRAY_BUFFER, VBO);
-  glBufferData(GL_ARRAY_BUFFER, sizeof(vertices) * N * M,
+  glBufferData(GL_ARRAY_BUFFER, sizeof(vertices) * M * N,
                vertices.data(), GL_STATIC_DRAW);
 
   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
@@ -373,6 +371,41 @@
   glDrawElements(GL_TRIANGLES, I, GL_UNSIGNED_INT, 0);
   glBindVertexArray(0);
     </code></pre>
+
+    <p>
+      For this tutorial, we use a shader program with vertex and fragment kernels
+      attached. The vertex shader should accept a single attribute for the
+      3-dimensional vertex position as well as a uniform projection matrix.
+      The fragment shader need only output a color for now. Both shaders
+      can be found in the <a href="">source code</a> for this tutorial.
+    </p>
+
+    <pre class="hljs"><code>
+  // vertex kernel
+  #version 330 core
+
+  layout(location = 0) in vec3 vertexPosition;
+  layout(location = 1) in vec3 vertexNormal;
+  uniform mat4 projection;
+  uniform mat4 view;
+  void main()
+  {
+      gl_Position = projection * view * vec4(vertexPosition, 1.0f);
+  }
+    </code></pre>
+
+    <pre class="hljs"><code>
+  // fragment kernel
+  #version 330 core
+
+  out vec4 color;
+  void main()
+  {
+      color = vec4(1.0f, 1.0f, 1.0f, 1.0f);
+  }
+    </code></pre>
+
+
 
     <h2>Camera Model</h2>
 
@@ -412,7 +445,7 @@
     </code></pre>
 
     <p>
-      These methods move that camera across the surface of the height map,
+      These methods move the camera across the surface of the height map,
       up and down along the vertical axis (in this tutorial, we use <i>z</i> to
       indicate terrain height), and a rotation fixed around the camera's viewing
       direction. This camera model disallows any <i>roll</i> around the camera's
