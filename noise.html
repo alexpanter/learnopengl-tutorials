@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <style>
+      body {
+      font-family: Gudea, sans-serif;
+      font-size: 16px;
+      color: #111;
+      background-color: #eee;
+      margin: 30px;
+      padding: 0px;
+      background-image: url(img/header_repeat2.png);
+      background-repeat: repeat-x;
+      width: 650px;
+      }
+      p {
+      display: block;
+      margin-block-start: 1em;
+      margin-block-end: 1em;
+      margin-inline-start: 0px;
+      margin-inline-end: 0px;
+      }
+      div {
+      display: block;
+      }
+      h1 {
+      color: #303236;
+      margin-bottom: -10px;
+      display: block;
+      font-size: 2em;
+      margin-block-start: 0.67em;
+      margin-block-end: 0.67em;
+      margin-inline-start: 0px;
+      margin-inline-end: 0px;
+      font-weight: bold;
+      }
+      h2 {
+      color: #37425d;
+      font-size: 22px;
+      margin-bottom: -10px;
+      display: block;
+      margin-block-start: 0.83em;
+      margin-block-end: 0.83em;
+      margin-inline-start: 0px;
+      margin-inline-end: 0px;
+      font-weight: bold;
+      }
+      .hljs {
+      color: #e0e2e4;
+      background: #282b2e;
+      padding: 5px 5px 5px 0px;
+      border-radius: 7px;
+      border: 3px solid #bbb;
+      font-size: 15px;
+      }
+      code {
+      font-family: monospace;
+      }
+      img {
+      width: inherit;
+      display: block;
+      margin-left: auto;
+      margin-right: auto;
+      border-radius: 7px;
+      border: 3px solid #bbb;
+      }
+      /* Three image containers (use 25% for four, and 50% for two, etc) */
+      .two-img-column {
+      float: left;
+      width: 45.0%;
+      padding: 5px;
+      }
+      /* Clear floats after image containers */
+      .img-row::after {
+      content: "";
+      clear: both;
+      display: table;
+      }
+    </style>
+  </head>
+
+
+  <body>
+    <h1>Terrain Rendering Series</h1>
+
+    <p>
+      Welcome to the second entry of the Terrain Rendering Series, a series in
+      which we explore common techniques for rendering terrains with OpenGL.
+    </p>
+
+    <p>
+      In the previous <a href="./heightmap.html">tutorial</a> we looked at the basic
+      building blocks for creating a flat surface and place it in a 3D world.
+      In this article, we will look at generating a landscape. Since we are working
+      with a height map, the way we actually create a landscape is by manipulating
+      the Z-values of each height map entry.
+    </p>
+
+    <h2>Seeded map generator</h2>
+
+    <p>
+      Though not a strict requirement in general for creating a landscape, using
+      what is called a <i>seeded</i> map generator can be very practical, especially
+      when creating a very large map is desired.
+    </p>
+
+    <p>
+      So what does this magic word <i>seeding</i> mean? It is a fancy way of saying
+      <i>input</i>. E.g. when using a random number generator we say that it can
+      be <i>seeded</i> with a value, which is necessary since computers really
+      can't generate truly random values (read THIS article if you're curious why).
+      One important property of using a seed is that given a seed <code>X</code>
+      and a generator function <code>G</code>, if we call <code>G</code> several
+      times with input <code>X</code> it must always return the same value. This
+      is a strict requirement for any seeded function, and is a particularly
+      useful property in map generation.
+    </p>
+
+    <p>
+      One key idea is to create a seed value <code>X</code> and then use it to
+      create the map. If we are playing a multiplayer real-time strategy game,
+      and the world size is <code>4096 x 4096</code>, then we can save a
+      significant amount of bandwith if simply send <code>X</code> across the
+      network instead of the entire map, and then have each player generate the
+      map themselves on their computers. Also, when we save the game, we save
+      only the seed value <code>X</code>, since the map can be created on the fly.
+    </p>
+
+    <p>
+      Some additional benefits of using a seeded map generator:
+      <ul>
+        <li>
+          If we initially create a map of size <code>N x M</code>, and we want
+          to create a new portion of land to place next to it and obtain a
+          continuity between the two sections so it looks like they were created
+          together, we can use the seed value as horizontal offset and add some
+          value to it. If our generator function <code>G</code> is designed
+          properly, this will work, and we will be able to create maps of
+          infinite size (in principle), since we don't have to store the entire
+          map on disk or in memory. Any section of it can be generated
+          as we need it, and discarded when it is out of view.
+        </li><br/>
+        <li>
+          With enough creativity, we can use the seed to generate not only
+          height values but also trees, foliage, rivers, etc. And the seed
+          value is not restricted to be a single value (typically a number),
+          it can also be a set of values. We can e.g. use the first 3 bits to
+          represent climate, the next 2 bits for density of forests, next bit
+          for disabled/enabled water, etc. It is truly a flexible and powerful
+          tool.
+        </li>
+      </ul>
+    </p>
+
+
+    <h2>Idea: Using Interpolated Noise</h2>
+
+    <p>
+      When generating a map, we want some kind of randomness to it but not too
+      much. With too much randomness the landscape will look rough or
+      unrealistic, and we generally want smooth transitions between areas.
+      It is for this reason that Ken Perlin invented an algorithm for creating
+      interpolated noise. Noise is generally an indistiguishable blob with
+      completely random values (imagine your old TV screen when the antenna is
+      not working). But take that noise and interpolate smoothly between
+      neighbouring values, we can create pseudo-random images (correct word?)
+    </p>
+
+
+    <h2>The Algorithm</h2>
+
+    <p>
+      To use Ken Perlins method (dubbed 'Perlin Noise'), we need a number of
+      procedures for our program:
+    </p>
+    <ul>
+      <li>A seeded random number generator <code>G</code>.</li>
+      <li>An interpolation function <code>F</code>.</li>
+      <li>A function <code>W</code> to compute a weighted sum of neighbouring
+        noise values.
+      </li>
+    </ul>
+
+    <p>
+      For the random number generator we could essentially use any seeded random
+      number generator (most programming languages have one provided in their
+      standard libraries), but we will use a custom one which is presented in
+      this <a href="www.arendpeter.com/Perlin_Noise.html">excellent</a> article
+      on Perlin Noise. The main reason is that it accepts two values instead of
+      one, and that is very practical for our 2D height map array. As is also
+      adviced in the article, we will have a number of generator functions
+      to switch between, one for each octave, so we have created a couple more
+      of them by using some other prime numbers:
+    </p>
+    <pre class="hljs" style="font-size:0.8em;"><code>
+  GLfloat RandomGenerator1(int x, int y)
+  {
+      int n = x + y * 57;
+      int k = (n<<13) ^ n;
+      return 1.0f - ((k*(k*k*15731 + 789221) + 1376312589) & 0x7fffffff)
+          / 1073741824.0f;
+  }
+  GLfloat RandomGenerator2(int x, int y)
+  {
+      int n = x + y * 57;
+      int k = (n<<13) ^ n;
+      return 1.0f - ((k*(k*k*15443 + 796379) + 1376383823) & 0x7fffffff)
+          / 1073741824.0f;
+  }
+  GLfloat RandomGenerator3(int x, int y)
+  {
+      int n = x + y * 57;
+      int k = (n<<13) ^ n;
+      return 1.0f - ((k*(k*k*15473 + 794407) + 1376384693) & 0x7fffffff)
+          / 1073741824.0f;
+  }
+  GLfloat RandomGenerator4(int x, int y)
+  {
+      int n = x + y * 57;
+      int k = (n<<13) ^ n;
+      return 1.0f - ((k*(k*k*15541 + 795601) + 1376387293) & 0x7fffffff)
+          / 1073741824.0f;
+  }
+  GLfloat RandomGenerator5(int x, int y)
+  {
+      int n = x + y * 57;
+      int k = (n<<13) ^ n;
+      return 1.0f - ((k*(k*k*15619 + 795947) + 1376388383) & 0x7fffffff)
+          / 1073741824.0f;
+  }
+
+
+  </code></pre>
+
+
+
+
+
+
+  </body>
+  <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+  <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+</html>
